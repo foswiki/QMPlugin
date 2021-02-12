@@ -1,0 +1,239 @@
+# Foswiki translation for Deutsch
+msgid ""
+msgstr ""
+"Project-Id-Version: Foswiki $Id\n"
+"Report-Msgid-Bugs-To: foswiki-svn@lists.sourceforge.net\n"
+"POT-Creation-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"PO-Revision-Date: 2016-02-25 16:35+0200\n"
+"Last-Translator: Michael Daum <foswiki@michaeldaumconsulting.com>\n"
+"Language-Team: German <http://translate.foswiki.org/projects/foswiki/"
+"distribution-master/de/>\n"
+"Language: de\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=n != 1;\n"
+
+#: templates/qmplugin.tmpl:1 templates/qmplugin.tmpl:15
+msgid "$text"
+msgstr ""
+
+#: templates/qmplugin.tmpl:30
+msgid "Action"
+msgstr "Aktion"
+
+#: data/System/QMPlugin.txt:143
+msgid "Approval for this document has been rejected."
+msgstr "Die Freigabe diese Dokumentes wurde abgelehnt."
+
+#: data/System/QMPlugin.txt:142
+msgid "Approved"
+msgstr "Freigegeben"
+
+#: templates/qmplugin.tmpl:183
+msgid "Approver"
+msgstr "Gutachter"
+
+#: templates/qmplugin.tmpl:205
+msgid "Are you sure that you to send a reminder to %1?"
+msgstr "Sind Sie sicher, dass Sie eine Erinnerung verschicken wollen an %1?"
+
+#: templates/qmplugin.tmpl:225
+msgid "Are you sure that you want to cancel the current transition?"
+msgstr "Sind Sie sicher, dass Sie die aktuelle Transition abbrechen möchten?"
+
+#: templates/qmplugin.tmpl:29
+msgid "Author"
+msgstr "Autor"
+
+#: templates/qmpluginnotify.tmpl:52 templates/qmpluginreminder.tmpl:12
+msgid "Best Regards, Your Wiki."
+msgstr "Mit freundlichen Grüßen, Ihr Wiki."
+
+#: templates/qmplugin.tmpl:214 templates/qmplugin.tmpl:77
+msgid "Cancel"
+msgstr "Abbrechen"
+
+#: templates/qmplugin.tmpl:218 templates/qmplugin.tmpl:219
+msgid "Cancel Transition"
+msgstr "Transition abbrechen"
+
+#: templates/qmplugin.tmpl:91
+msgid "Change State"
+msgstr "Status wechseln"
+
+#: templates/qmplugin.tmpl:124 templates/qmpluginnotify.tmpl:48
+msgid "Comment"
+msgstr "Kommentar"
+
+#: templates/qmplugin.tmpl:188 templates/qmplugin.tmpl:31
+msgid "Comments"
+msgstr "Kommentare"
+
+#: data/System/QMPlugin.txt:139
+msgid "Created"
+msgstr "Angelegt"
+
+#: templates/qmplugin.tmpl:33
+msgid "Date"
+msgstr "Datum"
+
+#: templates/qmplugin.tmpl:32
+msgid "Duration"
+msgstr "Dauer"
+
+#: templates/qmpluginnotify.tmpl:38 templates/qmpluginreminder.tmpl:4
+msgid "Hello"
+msgstr "Hallo"
+
+#: data/System/QMPlugin.txt:140
+msgid "In Progress"
+msgstr "In Bearbeitung"
+
+#: templates/qmplugin.tmpl:228
+msgid "No, thanks"
+msgstr "Nein, danke"
+
+#: templates/qmpluginnotify.tmpl:31
+msgid "Notification for %1"
+msgstr "Benachrichtigung für '%1'"
+
+#: data/System/QMPlugin.txt:133 data/System/QMPlugin.txt:85
+msgid "Person that created this topic."
+msgstr "Person, die diese Topic angelegt hat."
+
+#: data/System/QMPlugin.txt:134
+msgid "Persons that are supposed to approve this topic."
+msgstr "Personen, die dieses Topic begutachten sollen."
+
+#: data/System/QMPlugin.txt:135 data/System/QMPlugin.txt:86
+msgid "Persons with admin rights on the workflow."
+msgstr "Personen mit Admin-Rechten für diesen Workflow."
+
+#: templates/qmpluginnotify.tmpl:50 templates/qmpluginreminder.tmpl:10
+msgid "Please review the topic at %1."
+msgstr "Bitte überprüfen Sie das Topic %1"
+
+#: data/System/QMPlugin.txt:143
+msgid "Rejected"
+msgstr "Abgelehnt"
+
+#: templates/qmplugin.tmpl:175
+msgid "Reviewed by"
+msgstr "Überprüft von"
+
+#: templates/qmplugin.tmpl:196 templates/qmplugin.tmpl:197
+msgid "Send reminder"
+msgstr "Erinnerung verschicken"
+
+#: templates/qmplugin.tmpl:169
+msgid "Sign-off"
+msgstr "Abzeichnung"
+
+#: templates/qmplugin.tmpl:164
+msgid "Status"
+msgstr "Status"
+
+#: templates/qmplugin.tmpl:213 templates/qmplugin.tmpl:76
+msgid "Submit"
+msgstr "Abschicken"
+
+#: data/System/QMPlugin.txt:139
+msgid "This document has just been created."
+msgstr "Diese Dokument wurde gerade angelegt."
+
+#: data/System/QMPlugin.txt:142
+msgid "This document is approved."
+msgstr "Diese Dokument ist freigegeben."
+
+#: data/System/QMPlugin.txt:140
+msgid "This document is being worked on."
+msgstr "An diesem Dokument wird zur Zeit gearbeitet."
+
+#: data/System/QMPlugin.txt:141
+msgid "This document is waiting for approval."
+msgstr "Diese Dokument wartet auf Freigabe."
+
+#: templates/qmplugin.tmpl:133
+msgid ""
+"This topic is currently [[%1][being worked on]]. However it remains valid "
+"until this process has finished."
+msgstr ""
+"Dieses Topic wird zur Zeit [[%1%][überarbeitet]]. Solange behält diese "
+"Version seine Gültigkeit, bis die Überarbeitung abgeschlossen ist."
+
+#: templates/qmplugin.tmpl:129
+msgid ""
+"This topic is currently being worked on. The [[%1][original version]] "
+"remains valid until this process has finished."
+msgstr ""
+"Dieses Topic wird zur Zeit überarbeitet. Die [[%1%][Original-Version]] "
+"behält seine Gültigkeit, solange die Überarbeitung nicht abgeschlossen ist."
+
+#: lib/Foswiki/Plugins/QMPlugin/Net.pm:439
+msgid "Unknown"
+msgstr "Unbekannt"
+
+#: templates/qmplugin.tmpl:28
+msgid "Vers"
+msgstr "Vers"
+
+#: templates/qmplugin.tmpl:179
+msgid "Waiting for"
+msgstr "Warte auf"
+
+#: data/System/QMPlugin.txt:141
+msgid "Waiting for Approval"
+msgstr "Wartet auf Freigabe"
+
+#: templates/qmpluginnotify.tmpl:40
+msgid ""
+"We would like to inform you that the topic '%1' has been set to the status "
+"'%2' by the action '%4' of %3."
+msgstr "Wir möchten Sie darüber informieren, dass das Topic '%1' durch die Aktion '%4' von %3 auf den Status '%2' gesetzt worden ist."
+
+#: templates/qmpluginreminder.tmpl:6
+msgid "We would like to inform you that the topic '%1' needs your attention."
+msgstr ""
+"Wir wollen Sie darüber informieren, dass das Topic '%1' Ihre Aufmersamkeit "
+"benötigt."
+
+#: templates/qmplugin.tmpl:22
+msgid "Workflow History"
+msgstr "Workflowgeschichte"
+
+#: templates/qmplugin.tmpl:227
+msgid "Yes, cancel"
+msgstr "Ja, abbrechen"
+
+#: templates/qmplugin.tmpl:209
+msgid "and"
+msgstr "und"
+
+#: data/System/QMPlugin.txt:149
+msgid "approve"
+msgstr "freigeben"
+
+#: data/System/QMPlugin.txt:150
+msgid "reject"
+msgstr "ablehnen"
+
+#: data/System/QMPlugin.txt:147 data/System/QMPlugin.txt:148
+msgid "request approval"
+msgstr "Freigabe beantragen"
+
+#: data/System/QMPlugin.txt:152
+msgid "resume"
+msgstr "wiederaufnehmen"
+
+#: data/System/QMPlugin.txt:151
+msgid "start revision"
+msgstr "neue Revision starten"
+
+#: templates/qmplugin.tmpl:207
+msgid "the reviewers"
+msgstr "die Begutachter"
+
+#: templates/qmplugin.tmpl:49
+msgid "view changes"
+msgstr "Änderungen anschauen"

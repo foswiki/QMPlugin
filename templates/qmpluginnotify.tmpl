@@ -1,0 +1,57 @@
+%TMPL:DEF{"qm::notify"}%%TMPL:P{"qm::notify::init"}%%TMPL:P{"qm::notify::header"}%%TMPL:P{"qm::notify::body"}%%TMPL:END%
+
+%TMPL:DEF{"qm::notify::init"}%%QMSTATE{
+  format="$percntSET{
+            \"qm_emails\" value=\"$emails\"
+          }$percnt$percntSET{
+            \"qm_fromNodeTitle\" value=\"$nodeTitle($previousNode)\"
+          }$percnt$percntSET{
+            \"qm_actionTitle\" value=\"$actionTitle\"
+          }$percnt$percntSET{
+            \"qm_toNodeTitle\" value=\"$title\"
+          }$percnt$percntSET{
+            \"qm_author\" value=\"$wikiName($author)\"
+          }$percnt$percntSET{
+            \"qm_hasComments\" value=\"$hasComments\"
+          }$percnt"
+}%%TMPL:END%
+
+%TMPL:DEF{"qm::notify::header"}%
+%TMPL:P{"qm::notify::header::from"}%
+%TMPL:P{"qm::notify::header::to"}%
+%TMPL:P{"qm::notify::header::subject"}%
+%TMPL:P{"qm::notify::header::misc"}%
+%TMPL:END%
+
+%TMPL:DEF{"qm::notify::header::from"}%From: %WIKIWEBMASTERNAME% <%WIKIWEBMASTER%>%TMPL:END%
+%TMPL:DEF{"qm::notify::header::to"}%To: %FORMATLIST{"%URLPARAM{"recipient"}%"
+                                          null="%qm_emails%"
+                                          format="$percntUSERINFO{\"$1\" format=\"$emails\"}$percnt"
+                                        }%%TMPL:END%
+%TMPL:DEF{"qm::notify::header::subject"}%Subject: %WIKITOOLNAME% - %TRANSLATE{"Notification for [_1]" args="%GETTOPICTITLE{"%WEB%.%TOPIC%"}%"}%: %qm_actionTitle%%TMPL:END%
+%TMPL:DEF{"qm::notify::header::misc"}%Auto-Submitted: auto-generated
+MIME-Version: 1.0
+Content-Type: text/plain
+%TMPL:END%
+
+%TMPL:DEF{"qm::notify::body"}%%{}%
+%TRANSLATE{"Hello"}%,
+
+%TRANSLATE{"We would like to inform you that the topic '[_1]' has been set to the status '[_2]' by the action '[_4]' of [_3]."
+  arg1="%GETTOPICTITLE{"%WEB%.%TOPIC%"}%"
+  arg2="%qm_toNodeTitle%"
+  arg3="%GETTOPICTITLE{"%USERSWEB%.%qm_author%"}%"
+  arg4="%qm_actionTitle%"
+}%
+
+%IF{"%qm_hasComments%"
+  then="%TRANSLATE{"Comment"}%: $percntQMSTATE{format=\"$comment\"}$percnt
+"}%
+%TRANSLATE{"Please review the topic at [_1]." args="%SCRIPTURL{"view"}%/%WEB%/%TOPIC%"}%
+
+%TRANSLATE{"Best Regards, Your Wiki."}%
+%TMPL:END%
+
+<literal>
+%TMPL:P{"qm::notify"}%
+</literal>

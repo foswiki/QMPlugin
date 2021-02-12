@@ -1,0 +1,294 @@
+%TMPL:DEF{"qm::button"}%%BUTTON{"%TRANSLATE{"$text"}%" 
+  href="#qmplugin"
+  data_expand="qm::dialog::changestate"
+  data_workflow="$workflow"
+  data_topic="$web.$topic"
+  data_showcomment="$showcomment"
+  icon="$icon" 
+  class="$class"
+}%%TMPL:END%
+
+%TMPL:DEF{"qm::button::action"}%<form class='qmAjaxForm' action='%SCRIPTURLPATH{"jsonrpc"}%/QMPlugin/changeState' method='post'>
+  <input type='hidden' name='topic' value='$web.$topic' />
+  <input type='hidden' name='workflow' value='$workflow' />
+  <input type='hidden' name='action' value='$action' />
+  %BUTTON{"%TRANSLATE{"$text"}%"
+    type="submit"
+    icon="$icon"
+    class="$class"
+  }%
+</form>%TMPL:END%
+
+%TMPL:DEF{"qm::history::header::title"}%<h2 >%TRANSLATE{"Workflow History"}%</h2>%TMPL:END%
+
+%TMPL:DEF{"qm::history::header"}%$title
+<table class='foswikiTable foswikiFlatTable foswikiFullWidth foswikiStripes foswikiLayoutTable qmHistoryTable'>
+<thead>
+   <tr>
+      <th style='text-align:right;width:2em'>%TRANSLATE{"Vers"}%</th>
+      <th>%TRANSLATE{"Author"}%</th>
+      <th>%TRANSLATE{"Action"}%</th>
+      <th>%TRANSLATE{"Comments"}%</th>
+      <th>%TRANSLATE{"Date"}%</th>
+      <th class='foswikiHideOnPrint'></th>
+   </tr>
+</thead><tbody>%TMPL:END%
+
+
+%TMPL:DEF{"qm::history::format"}%<tr>
+      <td style='text-align:right;width:2em'> $percntIF{"$isFirst" then="<b>[[%OBJECT{default="%BASEWEB%.%BASETOPIC%"}%?rev=$rev][$rev]]</b>"}$percnt </td>
+      <td> $wikiUserName($author) </td>
+      <td> $percntIF{"$signOff=100 or $signOff=0" then="$title"}$percnt </td>
+      <td> $comment </td>
+      <td style='white-space:nowrap'>$datetime</td>
+      <td class='foswikiHideOnPrint'>%TMPL:P{"qm::history::format::diff"}%</td>
+</tr>%TMPL:END%
+
+%TMPL:DEF{"qm::history::format::diff"}%$percntIF{
+          "($signOff=100  or $signOff=0) and $rev>1"
+          then="<a href='%SCRIPTURLPATH{"diff"}%/%OBJECT{default="%BASEWEB%.%BASETOPIC%"}%?rev1=$rev&rev2=$prevRev&exclude=qmreview' title='%TRANSLATE{"view changes"}%' class='foswikiRight foswikiGrayText foswikiLarge foswikiHideOnPrint' style='line-height:1'>%JQICON{"ma-change-history"}%</a>"
+        }$percnt%TMPL:END%
+
+%TMPL:DEF{"qm::history::footer"}%</tbody></table>%TMPL:END%
+
+%TMPL:DEF{"qm::dialog::changestate"}%%QMSTATE{
+  topic="%WEB%.%TOPIC%"
+  workflow="%URLPARAM{"workflow"}%" 
+  format="$percntSET{\"edges\" value=\"$edges\"}$percnt<!-- -->
+          $percntSET{\"numActions\" value=\"$numActions\"}$percnt<!-- -->
+          $percntSET{\"numEdges\" value=\"$numEdges\"}$percnt"
+}%%IF{"%numEdges%=1"
+  then="$percntTMPL:P{\"qm::dialog::changestate::single\"}$percnt"
+  else="$percntTMPL:P{\"qm::dialog::changestate::multi\"}$percnt"
+}%%TMPL:END%
+
+%TMPL:DEF{"qm::dialog::changestate::start"}%%{}%
+  <form class="qmAjaxForm qmChangeStateForm" action="%SCRIPTURLPATH{"jsonrpc"}%/QMPlugin/changeState" method="post">
+    <input type="hidden" name="topic" value="%WEB%.%TOPIC%" />
+    <input type="hidden" name="workflow" value="%URLPARAM{"workflow"}%" />
+    <div class="foswikiFormSteps">
+%{}%%TMPL:END%
+
+%TMPL:DEF{"qm::dialog::changestate::end"}%%IF{"'%URLPARAM{"showcomment" default="on"}%'='on'"
+  then="$percntTMPL:P{\"qm::dialog::changestate::comment\"}$percnt"
+  else="<!-- -->"
+}%
+    <a class="jqUIDialogButton jqUIDialogSubmit" data-icon="ui-icon-circle-check">%TRANSLATE{"Submit"}%</a>
+    <a class="jqUIDialogButton jqUIDialogClose" data-icon="ui-icon-cancel">%TRANSLATE{"Cancel"}%</a>
+  </div>
+  </form>
+</div>%TMPL:END%
+
+%TMPL:DEF{"qm::dialog::changestate::single"}%<div id="qmChangeStateDialog" title="%QMNET{type="edges" topic="%WEB%.%TOPIC%" workflow="%URLPARAM{"workflow"}%" from="current" format="$title"}%" class="jqUIDialog" style="display:none" data-modal="true" data-width="540" data-close-on-escape='true' data-draggable='true'>
+%TMPL:P{"qm::dialog::changestate::start"}%
+%FORMATLIST{
+  "%edges%"
+  pattern="^(.*)/(.*)/(.*)$"
+  format="<input type='hidden' name='action' value='$2' /><input type='hidden' name='to' value='$3' />"
+}%
+%TMPL:P{"qm::dialog::changestate::end"}%%TMPL:END%
+
+%TMPL:DEF{"qm::dialog::changestate::multi"}%<div id="qmChangeStateDialog" title="%TRANSLATE{"Change State"}%" class="jqUIDialog" style="display:none" data-modal="true" data-width="540" data-close-on-escape='true' data-draggable='true'>
+%TMPL:P{"qm::dialog::changestate::start"}%
+<div class="foswikiFormStep">
+  <input type="hidden" name="to">
+%FORMATLIST{
+  "%edges%"
+  pattern="^(.*)/(.*)/(.*)$"
+  format="$percntQMEDGE{
+            from=\"$1\"
+            action=\"$2\"
+            to=\"$3\"
+            icon=\"fa-circle-o\"
+            format=\"<label class='qmAction'>
+                      <input type='radio' name='action' $percntIF{\"$index=1\" then=\"checked\"}$percnt value='$2' data-to='$3'>
+                      $dollarpercntJQICON{\\"$dollaricon\\"}$dollarpercnt 
+                      $percntIF{
+                        \"%numActions%=%numEdges%\" 
+                        then=\"$dollartitle\"
+                      }$percnt$percntIF{
+                        \"%numActions%=1\" 
+                        then=\"$dollarnodeTitle($to)\"
+                      }$percnt$percntIF{
+                        \"%numActions%!=%numEdges% and %numActions%>1\" 
+                        then=\"$dollartitle &#8594; $dollarnodeTitle($to)\"
+                      }$percnt
+                    </label>\"
+          }$percnt"
+  separator="$n"
+}%
+</div>
+%TMPL:P{"qm::dialog::changestate::end"}%%TMPL:END%
+
+%TMPL:DEF{"qm::dialog::changestate::comment"}% <div class='foswikiFormStep'>
+  <h3>%TRANSLATE{"Comment"}%:</h3>
+  <textarea name="comment" class="foswikiTextArea foswikiFullWidth" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" rows="5" cols="80" data-show-toolbar="false"></textarea>
+</div>%TMPL:END%
+
+%TMPL:DEF{"qm::state::message1"}%<div class='foswikiWarningMessage foswikiHideOnPrint'>
+%TRANSLATE{"This topic is currently being worked on. The [[[_1]][original version]] remains valid until this process has finished." args="%topic%"}%
+</div>%TMPL:END%
+
+%TMPL:DEF{"qm::state::message2"}%<div class='foswikiInfoMessage foswikiHideOnPrint'>
+%TRANSLATE{"This topic is currently [[[_1]][being worked on]]. However it remains valid until this process has finished." args="%topic%"}%
+</div>%TMPL:END%
+
+%TMPL:DEF{"qm::state"}%%IF{"'$origin'!=''"
+  then="$percntTMPL:P{\"qm::state::message1\" topic=\"$origin\"}$percnt"
+}%%IF{"istopic '%WEB%.%TOPIC%Copy'"
+  then="$percntTMPL:P{\"qm::state::message2\" topic=\"%WEB%.%TOPIC%Copy\"}$percnt"
+}%%TMPL:P{"qm::state::table"}%
+%TMPL:END%
+
+%TMPL:DEF{"qm::state::button"}%<div class='foswikiRight'>%IF{"'%QMSTATE{
+                                        format="$numActions" 
+                                        ignoreerror="on"
+                                        workflow="%workflow%"
+                                    }%' = '1'"
+   then="$percntQMBUTTON{
+            workflow=\"%workflow%\"
+            action=\"%QMSTATE{format="$actions" workflow="%workflow%"}%\"
+        }$percnt"
+   else="$percntQMBUTTON{
+            workflow=\"%workflow%\"
+         }$percnt"
+}%</div>%TMPL:END%
+
+%TMPL:DEF{"qm::state::table"}%<div class='foswikiFormSteps foswikiHideOnPrint $class %IF{"istopic '%WEB%.%TOPIC%Copy'" then="foswikiHidden"}%'>%IF{"$'URLPARAM{rev}'=''"
+  then="$percntTMPL:P{\"qm::state::button\" 
+          workflow=\"$workflow\"
+	}$percnt"
+}%
+<table class='foswikiLayoutTable qmStatusTable'>
+  <tr class='qmStatusContainer $state'>
+    <th>%TRANSLATE{"Status"}%:</th>
+    <td><span class='qmStatusTitle'>$title</span> - <span class='qmStatusMessage'>$message</span></td>
+  </tr>
+  %IF{"$isParallel and $signOff < 100" 
+    then="<tr>
+            <th>%TRANSLATE{"Sign-off"}%:</th> 
+            <td><div class='qmProgressBar qmProgressBar_$signOff'><div class='qmProgressBarContent' style='width:$signOff%'><span class='qmProgressBarLabel'>$signOff%</span></div>%IF{"$isAdmin"
+              then="$percntTMPL:P{\"qm::state::cancel\"}$percnt"
+            }%</div></td>
+          </tr>
+          <tr>
+            <th>%TRANSLATE{"Reviewed by"}%:</th>
+            <td>$wikiUserName($reviewers)</td>
+          </tr>
+          <tr %IF{"not $hasPending" then="style='display:none'"}%>
+            <th>%TRANSLATE{"Waiting for"}%:</th>
+            <td>$wikiUserName($pendingReviewers) %IF{"$isAdmin" then="$percntTMPL:P{\"qm::state::reminder\" reviewers=\"$pendingReviewers\"}$percnt"}%</td>
+          </tr>"
+    else="<tr %IF{"'$possibleReviewers($approval)'=''" then="style='display:none'"}%>
+            <th>%TRANSLATE{"Approver"}%:</th>
+            <td>$wikiUserName($possibleReviewers($approval)) %IF{"$isAdmin" then="$percntTMPL:P{\"qm::state::reminder\" reviewers=\"$possibleReviewers($approval)\"}$percnt"}%</td>
+          </tr>"
+  }%<!-- -->
+<tr class='qmStateReviews%IF{"$numComments = 0" then=" foswikiHidden"}%'>
+  <th>%TRANSLATE{"Comments"}%:</th>
+  <td>
+$reviews<!-- -->
+  </td>
+</tr>
+</table>
+</div>%TMPL:END%
+
+%TMPL:DEF{"qm::state::reminder"}%<noautolink><a href='#qmplugin' data-expand='qm::state::reminder::dialog' data-reviewers='%reviewers%' class='foswikiDialogLink foswikiGrayText qmReminderButton' title='%TRANSLATE{"Send reminder"}%'>%JQICON{"fa-send-o"}%</a></noautolink>%TMPL:END%
+%TMPL:DEF{"qm::state::reminder::dialog"}%<div class="jqUIDialog foswikiFormSteps" data-modal="true" data-width="450" data-draggable="true" title="%TRANSLATE{"Send reminder"}%">
+%JQICON{"fa-send-o" class="foswikiRight" style="font-size:400%; line-height:1;margin:0 0 0 0.5em"}%
+<form class="jqAjaxForm" action='%SCRIPTURLPATH{"jsonrpc"}%/QMPlugin/sendNotification' method='post'>
+<input type="hidden" name="topic" value="%WEB%.%TOPIC%" />
+<input type="hidden" name="redirect" value="%SCRIPTURLPATH{"view"}%/%WEB%/%TOPIC%" />
+<input type="hidden" name="template" value="qmpluginreminder" />
+<input type="hidden" name="recipient" value="%URLPARAM{"reviewers"}%" />
+<div class="foswikiFormStep">
+%TRANSLATE{"Are you sure that you to send a reminder to [_1]?" 
+  arg1="%FORMATLIST{"%URLPARAM{"reviewers"}%"
+          null="%TRANSLATE{"the reviewers"}%"
+          format="<b>$percntGETTOPICTITLE{\"%USERSWEB%.$1\"}$percnt</b>"
+          lastseparator=" %TRANSLATE{"and"}% "
+       }%"
+}%
+</div>
+<a class="jqUIDialogButton jqUIDialogSubmit" data-icon="ui-icon-circle-check">%TRANSLATE{"Submit"}%</a>
+<a class="jqUIDialogButton jqUIDialogClose" data-icon="ui-icon-cancel">%TRANSLATE{"Cancel"}%</a>
+</form>%JQREQUIRE{"ajaxform"}%
+</div>%TMPL:END%
+
+%TMPL:DEF{"qm::state::cancel"}%<a href='#qmplugin' class='qmCancelButton foswikiDialogLink foswikiAlert' data-expand='qm::state::cancel::dialog' title='%TRANSLATE{"Cancel Transition"}%'>%JQICON{"fa-minus-circle"}%</a>%TMPL:END%
+%TMPL:DEF{"qm::state::cancel::dialog"}%<div class="jqUIDialog foswikiFormSteps" data-modal="true" data-width="450" data-draggable="true" title="%TRANSLATE{"Cancel Transition"}%">
+%JQICON{"fa-filter" class="foswikiRight" style="font-size:400%; line-height:1;margin:0 0 0 0.5em"}%
+<form class="jqAjaxForm" action='%SCRIPTURLPATH{"jsonrpc"}%/QMPlugin/cancelTransition' method='post'>
+<input type="hidden" name="topic" value="%WEB%.%TOPIC%" />
+<input type="hidden" name="redirect" value="%SCRIPTURLPATH{"view"}%/%WEB%/%TOPIC%" />
+<div class="foswikiFormStep">
+%TRANSLATE{"Are you sure that you want to cancel the current transition?"}%
+</div>
+<a class="jqUIDialogButton jqUIDialogSubmit" data-icon="ui-icon-circle-check">%TRANSLATE{"Yes, cancel"}%</a>
+<a class="jqUIDialogButton jqUIDialogClose" data-icon="ui-icon-cancel">%TRANSLATE{"No, thanks"}%</a>
+</form>%JQREQUIRE{"ajaxform"}%
+</div>%TMPL:END%
+
+%TMPL:DEF{"qm::review::header"}%<div class='qmReviews'>%TMPL:END%
+%TMPL:DEF{"qm::review::format"}%<div class='qmReview'>
+$wikiUserName($author) <span class='foswikiGrayText foswikiSmallish'>$datetime - $actionTitle($reviewFrom, $reviewAction, $reviewTo)</span>
+<div class='qmReviewComment'>
+$comment <!-- -->
+</div>
+</div>%TMPL:END%
+%TMPL:DEF{"qm::review::footer"}%</div>%TMPL:END%
+
+%TMPL:DEF{"qm::graph::dot"}%%GRAPHVIZ{ 
+  renderer="dot" 
+  type="svg"  
+  inline="off"
+  "digraph $graphName {
+    graph [fontname=helvetica, ranksep=0.8, rankdir=TB, bgcolor=\"transparent\"]; 
+    node [fontname=helvetica, fontsize=10, shape=box, fontsize=12, style=\"rounded, filled\", fillcolor=\"#EEEEEE\", color=\"#AAAAAA\", margin=\"0.25,0\"]; 
+    edge [fontname=helvetica, fontsize=10, color=\"#31CEF0\", arrowhead=\"vee\", minlen=1, arrowsize=0.5, labelfloat=true %IF{"context darkmode" then=", fontcolor=\\"#FFFFFF\\""}%];
+    $graphNodes
+    $graphEdges
+  }"
+}%%TMPL:END%
+%TMPL:DEF{"qm::review::separator"}%%TMPL:END%
+
+%TMPL:DEF{"qm::graph::vis"}%%JQREQUIRE{"vis"}%<div clasS="jqVisNetwork" data-vis-data="#vis-data-$id" data-vis-options="#vis-options-$id"></div>
+<literal>
+<script type="text/json" id="vis-data-$id">{
+  "nodes": $graphNodes,
+  "edges": $graphEdges
+}</script>
+<script type="text/json" id="vis-options-$id">{
+    "edges": {
+      "font": {
+        "size": 12
+      },
+      "smooth": {
+        "enabled": true,
+        "type": "cubicBezier"
+      }
+    },
+    "nodes": {
+      "shape": "box",
+      "shadow": true,
+      "margin": 10
+    },
+    "physics": {
+      "enabled": false
+    },
+    "layout": {
+      "hierarchical": {
+        "enabled": true,
+        "levelSeparation": 250,
+        "nodeSpacing": 200,
+        "treeSpacing": 200,
+        "blockShifting": true,
+        "edgeMinimization": false,
+        "parentCentralization": false,
+        "direction": "LR",
+        "sortMethod": "directed" 
+      }
+    }
+}</script>
+</literal>
+%TMPL:END%

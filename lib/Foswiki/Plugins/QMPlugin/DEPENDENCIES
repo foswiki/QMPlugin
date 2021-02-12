@@ -1,0 +1,6 @@
+Foswiki::Plugins::FilterPlugin,>=6.00,perl,Required
+Foswiki::Plugins::MoreFormfieldsPlugin,>=8.00,perl,Required
+Foswiki::Plugins::MultiLingualPlugin,>=4.10,perl,Required
+Foswiki::Plugins::RenderPlugin,>=6.20,perl,Required
+Foswiki::Contrib::WikiWorkbenchContrib,>=6.00,perl,Optional
+Foswiki::Plugins::ClassificationPlugin,>=7.10,perl,Optional

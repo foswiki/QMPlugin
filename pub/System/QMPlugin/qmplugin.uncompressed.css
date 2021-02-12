@@ -1,0 +1,87 @@
+.qmStatusTable th {
+  white-space:nowrap;
+}
+.qmStatusTable td {
+  width:100%;
+}
+
+.qmProgressBar,
+.qmProgressBarContent,
+.qmProgressBarLabel {
+  display:inline-block;
+}
+.qmProgressBar {
+  position:relative;
+  background-color:#ddd;
+  width:100%;
+  font-size:80%;
+  line-height:1.7;
+  box-sizing:border-box;
+}
+.qmProgressBarContent {
+  background-color:#3e89d3;
+  color:#fff;
+  text-align:right;
+  padding:0 0.5em;
+}
+.qmProgressBar_0 .qmProgressBarContent {
+  color:#444;
+  background-color:transparent;
+}
+.qmReminderButton {
+  text-decoration:none;
+  margin-left:0.5em;
+}
+.qmCancelButton {
+  text-decoration:none;
+  position:absolute;
+  top:0;
+  right:0.5em;
+}
+
+tr.qmApproved td,
+tr.qmApproved td a {
+  color:#599E00 !important;
+  background: #efffd8 !important;
+}
+
+.qmHistoryTable th {
+  white-space:nowrap;
+}
+.qmReview {
+  margin-top:1em;
+}
+.qmReview:first-child {
+  margin-top:0;
+}
+
+.qmAction {
+  display:block;
+  padding:0.7em;
+  font-size:95%;
+  line-height:1.2;
+  border:1px solid transparent;
+  border-radius:0.5em;
+  margin: 0 0 0.5em 0;
+  overflow:hidden;
+  box-sizing:border-box;
+  transition:box-shadow 500ms ease,border 200ms ease
+}
+.qmAction:hover,
+.qmAction.qmSelected {
+  background: var(--color-selection-background, #f6f6f6);
+  color: var(--color-selection-foreground, #333);
+  border-color: var(--color-selection-border, #d5d6dd);
+}
+.qmAction .foswikiIcon {
+  font-size:120%;
+  width: 1.28571429em;
+  text-align:center;
+  margin-right:0.3em;
+}
+.qmAction.qmSelected .foswikiIcon {
+  color: var(--color-primary, #2375c5);
+}
+.qmAction input[type=radio] {
+  display:none;
+}

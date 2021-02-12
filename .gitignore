@@ -1,0 +1,17 @@
+*.swp
+*,v
+pub/**/igp_*
+locale/**/*~
+
+/QMPlugin.md5
+/QMPlugin.sha1
+/QMPlugin.tgz
+/QMPlugin.txt
+/QMPlugin.zip
+/QMPlugin_installer
+/QMPlugin_installer.pl
+
+pub/System/QMPlugin/qmplugin.css
+pub/System/QMPlugin/qmplugin.css.gz
+pub/System/QMPlugin/qmplugin.js
+pub/System/QMPlugin/qmplugin.js.gz
