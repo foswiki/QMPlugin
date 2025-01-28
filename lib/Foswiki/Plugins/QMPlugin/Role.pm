@@ -1,6 +1,6 @@
 # Plugin for Foswiki - The Free and Open Source Wiki, https://foswiki.org/
 #
-# QMPlugin is Copyright (C) 2019-2021 Michael Daum http://michaeldaumconsulting.com
+# QMPlugin is Copyright (C) 2019-2025 Michael Daum http://michaeldaumconsulting.com
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -62,23 +62,6 @@ sub new {
 
 =begin TML
 
----++ ObjectMethod finish()
-
-called when this role is destroyed
-
-=cut
-
-sub finish {
-  my $this = shift;
-
-  $this->SUPER::finish();
-  undef $this->{_members}{0};
-  undef $this->{_members}{1};
-}
-
-
-=begin TML
-
 ---++ ObjectMethod render($format, $params) -> $string
 
 render this node given the specified format string
@@ -100,16 +83,17 @@ sub render {
 
 =begin TML
 
----++ ObjectMethod isMember($id) -> $boolean
+---++ ObjectMethod isMember($idOrUser) -> $boolean
 
-returns true if =$id= (default current user) is member of this role
+returns true if =$idOrUser= (default current user) is member of this role
 
 =cut
 
 sub isMember {
-  my ($this, $id) = @_;
+  my ($this, $idOrUser) = @_;
 
-  $id ||= Foswiki::Func::getWikiName();
+  $idOrUser ||= Foswiki::Func::getWikiName();
+  my $id = ref($idOrUser) ? $idOrUser->prop("id") : $idOrUser;
 
   foreach my $user ($this->getMembers()) {
 
@@ -140,46 +124,42 @@ sub getMembers {
   return if $seen->{$this->prop("id")};    # prevent infinite recursion
   $seen->{$this->prop("id")} = 1;
 
-  unless (defined $this->{_members}{$expand}) {
+  my %members = ();
+  my $members = $this->prop("members");
 
-    my %members = ();
+  foreach my $id (split(/\s*,\s*/, $this->expandValue($this->prop("members")))) {
+    next if $seen->{$id} || $members{$id};
+    next if $id =~ /^(nobody)$/i;
 
-    foreach my $id (split(/\s*,\s*/, $this->expandValue($this->prop("members")))) {
-      next if $seen->{$id} || $members{$id};
-      next if $id =~ /^(nobody)$/i;
-
-      # role
-      my $role = $this->getNet->getRole($id);
-      if (defined $role) {
-        $members{$_->prop("id")} = $_ foreach $role->getMembers($expand, $seen);
-        next;
-      }
-
-      # user
-      my $user = $this->getCore->getUser($id);
-      if (defined $user) {
-        $members{$user->prop("id")} = $user;
-        next;
-      }
-
-      # group
-      my $group = $this->getCore->getGroup($id);
-      if (defined $group) {
-        if ($expand) {
-          $members{$_->prop("id")} = $_ foreach $group->getMembers();
-        } else {
-          $members{$group->prop("id")} = $group;
-        }
-        next;
-      }
-
-      print STDERR "WARNING: undefined type of member '$id' (not a role, user or group)\n"
+    # role
+    my $role = $this->getNet->getRole($id);
+    if (defined $role) {
+      $members{$_->prop("id")} = $_ foreach $role->getMembers($expand, $seen);
+      next;
     }
 
-    $this->{_members}{$expand} = [values %members];
+    # group
+    my $group = $this->getCore->getGroup($id);
+    if (defined $group) {
+      if ($expand) {
+        $members{$_->prop("id")} = $_ foreach $group->getMembers();
+      } else {
+        $members{$group->prop("id")} = $group;
+      }
+      next;
+    }
+
+    # user
+    my $user = $this->getCore->getUser($id);
+    if (defined $user) {
+      $members{$user->prop("id")} = $user;
+      next;
+    }
+
+    #print STDERR "WARNING: undefined type of member '$id' (not a role, user or group)\n"
   }
 
-  return @{$this->{_members}{$expand}};
+  return values %members;
 }
 
 =begin TML

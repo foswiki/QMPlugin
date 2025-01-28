@@ -1,6 +1,6 @@
 # Plugin for Foswiki - The Free and Open Source Wiki, https://foswiki.org/
 #
-# QMPlugin is Copyright (C) 2019-2021 Michael Daum http://michaeldaumconsulting.com
+# QMPlugin is Copyright (C) 2019-2025 Michael Daum http://michaeldaumconsulting.com
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -21,7 +21,7 @@ package Foswiki::Plugins::QMPlugin::Core;
 
 core class for this plugin
 
-an object of this class is allocated for each session request
+an singleton instance is allocated on demand
 
 =cut
 
@@ -35,6 +35,7 @@ use Foswiki::Form ();
 use Foswiki::Attrs ();
 use Foswiki::Plugins ();
 use Foswiki::Plugins::QMPlugin::Net ();
+use Foswiki::Plugins::QMPlugin::TopicIterator ();
 use Foswiki::Plugins::QMPlugin::State ();
 use Foswiki::Plugins::QMPlugin::User ();
 use Foswiki::Plugins::QMPlugin::Group ();
@@ -83,6 +84,12 @@ our @defaultHandler = ({
     type => 'afterSave',
   },
   {
+    id => 'move',
+    package => 'Foswiki::Plugins::QMPlugin::Handler::Move',
+    function => 'handle',
+    type => 'afterSave',
+  },
+  {
     id => 'trash',
     package => 'Foswiki::Plugins::QMPlugin::Handler::Trash',
     function => 'handle',
@@ -107,11 +114,17 @@ our @defaultHandler = ({
     type => 'beforeSave',
   },
   {
-    id => 'deletemeta',
+    id => 'deleteMeta',
     package => 'Foswiki::Plugins::QMPlugin::Handler::DeleteMeta',
     function => 'handle',
     type => 'beforeSave',
-  }
+  },
+  {
+    id => 'createTopic',
+    package => 'Foswiki::Plugins::QMPlugin::Handler::CreateTopic',
+    function => 'handle',
+    type => 'afterSave',
+  },
 );
 
 =begin TML
@@ -128,8 +141,10 @@ sub new {
   my $this = bless({@_}, $class);
 
   $this->{_states} = ();
+  $this->{_nets} = ();
   $this->{_commandHandler} = {};
   $this->{_saveInProgress} = 0;
+  $this->{_redirectUrl} = undef;
 
   # make sure the qmplugin template is loaded
   if (Foswiki::Func::expandTemplate("qm::state") eq "") {
@@ -156,15 +171,21 @@ sub finish {
   my $this = shift;
 
   foreach my $state (values %{$this->{_states}}) {
-    $state->finish;
+    $state->finish if ref($state);
+  }
+
+  foreach my $net (values %{$this->{_nets}}) {
+    $net->finish if ref($net);
   }
 
   undef $this->{_commandHandler};
+  undef $this->{_nets};
   undef $this->{_states};
   undef $this->{_users};
   undef $this->{_users_index};
   undef $this->{_groups};
   undef $this->{_groups_index};
+  undef $this->{_redirectUrl};
 }
 
 =begin TML
@@ -294,15 +315,69 @@ sub saveMeta {
   _writeDebug("called saveMeta(".$meta->getPath().")");
 
   $this->{_saveInProgress} = 1;
-  $meta->save(@_);
+  my $rev = $meta->save(@_);
   $this->{_saveInProgress} = 0;
+
+  return $rev;
+}
+
+=begin TML
+
+---++ ObjectMethod afterSaveHandler($web, $topic, $meta)
+
+make sure the saved topic has got the right access control settings
+
+=cut
+
+sub afterSaveHandler {
+  my ($this, $web, $topic, $meta) = @_;
+
+  return if $this->{_saveInProgress};
+  _writeDebug("called afterSaveHandler for $web.$topic, $meta");
+
+  my $state = $this->getState($web, $topic, undef, $meta, 1);
+  unless (defined $state) {
+    _writeDebug("no qmstate found");
+    return;
+  }
+
+  my $workflow = $state->prop("workflow");
+  unless (defined $workflow) {
+    _writeDebug("no workflow found");
+    return;
+  }
+
+  my $hasChanged = $state->setACLs();
+  unless ($hasChanged) {
+    _writeDebug("acls didn't change");
+    return;
+  }
+
+  _writeDebug("saving new acls");
+  $this->saveMeta($meta,
+# DON'T change the save flags as this overrides those done by the user
+#    minor => 1,
+#    dontlog => 1
+  );
+
+  if (TRACE) {
+    my $allowView = $meta->get("PREFERENCE", "ALLOWTOPICVIEW");
+    my $allowEdit = $meta->get("PREFERENCE", "ALLOWTOPICCHANGE");
+    my $allowApproval = $meta->get("PREFERENCE", "ALLOWTOPICAPPROVE");
+    print STDERR "allowView=" . ($allowView ? $allowView->{value} : 'undef') . "\n";
+    print STDERR "allowEdit=" . ($allowEdit ? $allowEdit->{value} : 'undef') . "\n";
+    print STDERR "allowApprove=" . ($allowApproval ? $allowApproval->{value} : 'undef') . "\n";
+  }
+
+  _writeDebug("done afterSaveHandler");
 }
 
 =begin TML
 
 ---++ ObjectMethod beforeSaveHandler($web, $topic, $meta)
 
-make sure the saved topic has got the right access control settings
+   * make sure the saved topic has got the right workflow
+   * trigger a state change when a qmstate formfield has been altered
 
 =cut
 
@@ -315,7 +390,7 @@ sub beforeSaveHandler {
   ($meta) = Foswiki::Func::readTopic($web, $topic) unless defined $meta;
 
   my $state = $this->getState($web, $topic, undef, $meta);
-  _writeDebug("no state") unless defined $state;
+  _writeDebug("no qmstate found") unless defined $state;
   return unless defined $state;
 
   ### 1. get workflow from request
@@ -323,8 +398,13 @@ sub beforeSaveHandler {
   my $doUnsetWorkflow = 0;
 
   my $workflow = $request->param("workflow");
-  if ($workflow) {
-    _writeDebug("found workflow in reuqest");
+  if (defined $workflow) {
+    if ($workflow eq "") {
+      _writeDebug("removing workflow as reuqested");
+      $doUnsetWorkflow = 1;
+    } else {
+      _writeDebug("found workflow in reuqest");
+    }
   } else {
     # 2. get workflow from qmworkflow formfield
     my $workflowField = $this->getQMWorkflowFormfield($meta);
@@ -342,7 +422,7 @@ sub beforeSaveHandler {
       my $text = $meta->text() || '';
       while ($text =~ /%QMSTATE\{(.*?)\}%/gms) {
         my $params = Foswiki::Attrs->new($1);
-        my $workflow = $params->{workflow};
+        $workflow = $params->{workflow};
 
         if ($workflow) {
           my $thisTopic = $params->{_DEFAULT} || $params->{topic} || $topic;
@@ -368,50 +448,67 @@ sub beforeSaveHandler {
   if ($workflow && !$doUnsetWorkflow) {
     _writeDebug("found workflow '$workflow'");
 
-    _writeDebug("deleting ACL params from reuqest");
-
-    foreach my $key (qw(
-      Set+ALLOWTOPICVIEW 
-      Set+ALLOWTOPICCHANGE 
-      Set+DENYTOPICVIEW 
-      Set+DENYTOPICCHANGE 
-    )) {
-      #_writeDebug("$key=".($request->param($key)//''));
-      $request->delete($key);
-    }
-
     _writeDebug("setting workflow");
     $state->setWorkflow($workflow);
 
-    # force new revision when a non qm change happened
-    if ($state->hasChanged()) {
-      _writeDebug("state changed ... saving changes.");
-      $this->saveMeta($state->getMeta(), forcenewrevision => 1);
-    } else {
-      _writeDebug("no changes");
-    }
-
-    $state->updateMeta();
-    $state->setACLs();
   } else {
     if ($state->prop("workflow")) {
       _writeDebug("unsetting workflow");
       $state->unsetWorkflow();
       $state->updateMeta();
-      $state->setACLs();
     }
   }
 
-  if (TRACE) {
-    my $allowView = $meta->get("PREFERENCE", "ALLOWTOPICVIEW");
-    my $allowEdit = $meta->get("PREFERENCE", "ALLOWTOPICCHANGE");
-    my $allowApproval = $meta->get("PREFERENCE", "ALLOWTOPICAPPROVE");
-    print STDERR "allowView=" . ($allowView ? $allowView->{value} : 'undef') . "\n";
-    print STDERR "allowEdit=" . ($allowEdit ? $allowEdit->{value} : 'undef') . "\n";
-    print STDERR "allowApprove=" . ($allowApproval ? $allowApproval->{value} : 'undef') . "\n";
+  if ($state->hasChanged()) {
+    _writeDebug("state changed ... saving changes.");
+    $state->save();
+  } else {
+    _writeDebug("no changes");
   }
 
   _writeDebug("done beforeSaveHandler");
+}
+
+=begin TML
+
+---++ ObjectMethod getFormfieldDefinition($meta, $type) -> $fieldDef
+
+returns a Foswiki::Form::FieldDefinition for the given formfield type.
+this is used to return the definitions of a qmstate or qmworkflow formfield.
+
+returns undef if the form doesn't have a formfield of the requested type
+
+=cut
+
+sub getFormfieldDefinition {
+  my ($this, $meta, $type) = @_;
+
+  my $topic = $meta->getFormName();
+  return unless $topic;
+
+  my $web = $meta->web();
+
+  ($web, $topic) = Foswiki::Func::normalizeWebTopicName($web, $topic);
+  return unless Foswiki::Func::topicExists($web, $topic);
+
+  my $session = $Foswiki::Plugins::SESSION;
+
+  my $form;
+  try {
+    $form = Foswiki::Form->new($session, $web, $topic);
+  } catch Error::Simple with {
+    print STDERR "ERROR: " . shift . "\n";
+  };
+  return unless $form;
+
+  my $fields = $form->getFields();
+  return unless $fields;
+
+  foreach my $fieldDef (@$fields) {
+    return $fieldDef if $fieldDef && $fieldDef->{type} && $fieldDef->{type} eq $type;
+  }
+
+  return;
 }
 
 =begin TML
@@ -425,34 +522,11 @@ return a formfield of a qmstate if it exists
 sub getQMStateFormfield {
   my ($this, $meta) = @_;
 
-  my $topic = $meta->getFormName();
-  return unless $topic;
+  my $fieldDef = $this->getFormfieldDefinition($meta, "qmstate");
+  return unless $fieldDef;
 
-  my $web = $meta->web();
-
-  ($web, $topic) = Foswiki::Func::normalizeWebTopicName($web, $topic);
-  return unless Foswiki::Func::topicExists($web, $topic);
-
-  my $session = $Foswiki::Plugins::SESSION;
-
-  my $form;
-  try {
-    $form = Foswiki::Form->new($session, $web, $topic);
-  } catch Error::Simple with {
-    print STDERR "ERROR: " . shift . "\n";
-  };
-  return unless $form;
-
-  my $fields = $form->getFields();
-  return unless $fields;
-
-  foreach my $fieldDef (@$fields) {
-    if ($fieldDef && $fieldDef->{type} && $fieldDef->{type} eq 'qmstate') {
-      return wantarray ? ($fieldDef, $meta->get("FIELD", $fieldDef->{name})) : $meta->get("FIELD", $fieldDef->{name});
-    }
-  }
-
-  return;
+  my $field = $meta->get("FIELD", $fieldDef->{name});
+  return wantarray ? ($fieldDef, $field) : $field;
 }
 
 =begin TML
@@ -466,34 +540,11 @@ return a formfield of a qmworkflow if it exists
 sub getQMWorkflowFormfield {
   my ($this, $meta) = @_;
 
-  my $topic = $meta->getFormName();
-  return unless $topic;
+  my $fieldDef = $this->getFormfieldDefinition($meta, "qmworkflow");
+  return unless $fieldDef;
 
-  my $web = $meta->web();
-
-  ($web, $topic) = Foswiki::Func::normalizeWebTopicName($web, $topic);
-  return unless Foswiki::Func::topicExists($web, $topic);
-
-  my $session = $Foswiki::Plugins::SESSION;
-
-  my $form;
-  try {
-    $form = Foswiki::Form->new($session, $web, $topic);
-  } catch Error::Simple with {
-    print STDERR "ERROR: " . shift . "\n";
-  };
-  return unless $form;
-
-  my $fields = $form->getFields();
-  return unless $fields;
-
-  foreach my $fieldDef (@$fields) {
-    if ($fieldDef && $fieldDef->{type} && $fieldDef->{type} eq 'qmworkflow') {
-      return wantarray ? ($fieldDef, $meta->get("FIELD", $fieldDef->{name})) : $meta->get("FIELD", $fieldDef->{name});
-    }
-  }
-
-  return;
+  my $field = $meta->get("FIELD", $fieldDef->{name});
+  return wantarray ? ($fieldDef, $field) : $field;
 }
 
 =begin TML
@@ -563,10 +614,10 @@ sub jsonRpcChangeState {
     unless defined $action;
 
   my $to = $request->param("to");
-  throw Foswiki::Contrib::JsonRpcContrib::Error(1005, "to not defined")
-    unless defined $to;
+  #throw Foswiki::Contrib::JsonRpcContrib::Error(1005, "to not defined")
+  #  unless defined $to;
 
-  _writeDebug("called jsonRpcChangeState(), topic=$web.$topic, wikiName=$wikiName, action=$action, to=$to");
+  _writeDebug("called jsonRpcChangeState(), topic=$web.$topic, wikiName=$wikiName, action=$action, to=".($to//'undef'));
 
   my ($meta) = Foswiki::Func::readTopic($web, $topic);
 
@@ -600,21 +651,18 @@ sub jsonRpcChangeState {
 
   return 1 unless $hasChanged;
 
-  my $redirectUrl;
   try {
     $state->save(
       ignorepermissions => 1,
       forcenewrevision => 1
     );
-  } catch Foswiki::Plugins::QMPlugin::Redirect with {
-    $redirectUrl = shift->{url};
   } catch Error with {
-    my $error = shift;
+    $error = shift;
     print STDERR "ERROR: $error\n";
     throw Error::Simple("Sorry, there was an error when saving the state.");
   };
 
-  return {redirect => $redirectUrl} if defined $redirectUrl;
+  return {redirect => $this->redirectUrl()} if defined $this->redirectUrl();
   return 1;
 }
 
@@ -683,50 +731,47 @@ sub restTriggerStates {
 
   my $request = Foswiki::Func::getRequestObject();
 
-  _writeDebug("called jsonRpcTrigger()");
+  _writeDebug("called restTriggerStates()");
 
   throw Error::Simple("not allowed") unless Foswiki::Func::getContext()->{isadmin};
+
+  # enter cron context
+  Foswiki::Func::getContext()->{cronjob} = 1;
 
   my $isDry = Foswiki::Func::isTrue($request->param("dry"), 0);
 
   my $includeWeb = $request->param("includeweb");
   my $excludeWeb = $request->param("excludeweb");
+  my $keepReviews = Foswiki::Func::isTrue($request->param("keepreviews"), 0);
 
   my @webs = split(/\s*,\s*/, $request->param("web") // $request->param("webs") // '');
-  @webs = Foswiki::Func::getListOfWebs( "user,public" ) unless @webs;
-
-  if ($includeWeb) {
-    $includeWeb =~ s/,/|/g;
-    @webs = grep {/$includeWeb/} @webs;
-  }
-
-  if ($excludeWeb) {
-    $excludeWeb =~ s/,/|/g;
-    @webs = grep {!/$excludeWeb/} @webs;
-  }
+  _writeDebug("webs=@webs");
 
   my $includeTopic = $request->param("includetopic");
   my $excludeTopic = $request->param("excludetopic");
-
   $includeTopic =~ s/,/|/g if $includeTopic;
   $excludeTopic =~ s/,/|/g if $excludeTopic;
 
-  _writeDebug("webs=@webs");
-
   my $includeWorkflow = $request->param("includeworkflow");
   my $excludeWorkflow = $request->param("excludeworkflow");
-
   $includeWorkflow =~ s/,/|/g if $includeWorkflow;
   $excludeWorkflow =~ s/,/|/g if $excludeWorkflow;
 
-  my $matches = Foswiki::Func::query("qmstate", undef, { 
-    type => "query",
-    web => join(",", sort @webs), 
-    files_without_match => 1 
-  });
+  my $matches = Foswiki::Plugins::QMPlugin::TopicIterator->new(
+    webs => \@webs,
+    includeWeb => $includeWeb,
+    excludeWeb => $excludeWeb,
 
+    # TODO: more filter parameters to Foswiki::Plugins::QMPlugin::TopicIterator
+    # includeTopic => $includeTopic,
+    # excludeTopic => $excludeTopic,
+    # includeWorkflow => $includeWorkflow,
+    # excludeWorkflow => $excludeWorkflow,
+  );
+
+  my $index = 0;
   while ($matches->hasNext) {
-    my ($web, $topic) = Foswiki::Func::normalizeWebTopicName('', $matches->next);
+    my ($web, $topic) = $matches->next;
 
     next if $includeTopic && $topic !~ /$includeTopic/;
     next if $excludeTopic && $topic =~ /$excludeTopic/;
@@ -736,19 +781,22 @@ sub restTriggerStates {
       next;
     }
 
-
     my $state = $this->getState($web, $topic);
     next unless $state;
 
-    next if $includeWorkflow && $state->prop("workflow") !~ /$includeWorkflow/;
-    next if $excludeWorkflow && $state->prop("workflow") =~ /$excludeWorkflow/;
+    my $workflow = $state->prop("workflow");
+    next unless defined $workflow && $workflow ne "";
 
+    next if $includeWorkflow && $workflow !~ /$includeWorkflow/;
+    next if $excludeWorkflow && $workflow =~ /$excludeWorkflow/;
+
+    $index++;
     _writeDebug("processing topic=$web.$topic");
-    _writeDebug("... workflow=".$state->prop("workflow"));
+    _writeDebug("... workflow=$workflow");
 
     my $node = $state->getCurrentNode();
     unless (defined $node) {
-      print STDERR "WARNING: $web.$topic - state undefined even though workflow '".$state->prop("workflow")."' is assigned\n";
+      print STDERR "WARNING: $web.$topic - state undefined even though workflow '$workflow' is assigned\n";
       next;
     }
     _writeDebug("... current state=".$node->prop("id"));
@@ -771,7 +819,7 @@ sub restTriggerStates {
       my $error;
       my $hasChanged = 0;
       try {
-        $hasChanged = $state->change($edge->prop("action"), $edge->prop("to"));
+        $hasChanged = $state->change($edge->prop("action"), $edge->prop("to"), undef, undef, $keepReviews);
       } catch Error::Simple with {
         $error = shift->stringify;
         print STDERR "ERROR: $error\n";
@@ -783,29 +831,22 @@ sub restTriggerStates {
         if defined $error;
 
       if (!$isDry && $hasChanged) {
-        my $redirectUrl;
         try {
           $state->save(
             ignorepermissions => 1,
             forcenewrevision => 1,
             minor => 1
           );
-        } catch Foswiki::Plugins::QMPlugin::Redirect with {
-          $redirectUrl = shift->{url};
         } catch Error with {
-          my $error = shift;
+          $error = shift;
           print STDERR "ERROR: $error\n";
           throw Error::Simple("Sorry, there was an error when triggering the state.");
         };
-
-        if (defined $redirectUrl) {
-          return {redirect => $redirectUrl};
-        }
       }
     }
   }
+  _writeDebug("... tested $index topics"); 
   
-
   return '';
 }
 
@@ -826,7 +867,7 @@ sub QMHISTORY {
   $topic = $params->{topic} if defined $params->{topic};
   ($web, $topic) = Foswiki::Func::normalizeWebTopicName($web, $topic);
 
-  my $ignoreError = Foswiki::Func::isTrue($params->{ignoreerror}, 0);
+  my $ignoreError = _ignoreError($params);
   return $ignoreError ? "" : _inlineError("topic not found") unless Foswiki::Func::topicExists($web, $topic);
 
   my $request = Foswiki::Func::getRequestObject();
@@ -862,14 +903,11 @@ sub QMHISTORY {
   @states = _sortRecords(\@states, $sort) if defined $sort && $sort ne "date";
 
   my @result = ();
-  my $skip = $params->{skip} || 0;
-  my $limit = ($params->{limit} || 0) + $skip;
 
   my $index = 0;
   my $prevState;
   foreach my $state (@states) {
     $index++;
-    next if $index <= $skip;
     $prevState = $states[$index] if $isReverse;
 
     my $line = $format;
@@ -880,7 +918,6 @@ sub QMHISTORY {
     push @result, $line if $line ne "";
 
     $prevState = $state unless $isReverse;
-    last if $limit && $index >= $limit;
   }
   return "" unless @result;
 
@@ -892,6 +929,7 @@ sub QMHISTORY {
 
   return Foswiki::Func::decodeFormatTokens($result);
 }
+
 =begin TML
 
 ---++ ObjectMethod QMNET($session, $params, $topic, $web)
@@ -905,15 +943,14 @@ sub QMNET {
 
   my $request = Foswiki::Func::getRequestObject();
   my $rev = $params->{rev} || $request->param("rev") || "";
-  my $ignoreError = Foswiki::Func::isTrue($params->{ignoreerror}, 0);
+  my $ignoreError = _ignoreError($params);
 
-  $topic = $params->{_DEFAULT} if defined $params->{_DEFAULT};
   $topic = $params->{topic} if defined $params->{topic};
   ($web, $topic) = Foswiki::Func::normalizeWebTopicName($web, $topic);
 
   #_writeDebug("called QMNET: $web.$topic, rev=$rev");
 
-  my $workflow = $params->{workflow};
+  my $workflow = $params->{_DEFAULT} // $params->{workflow};
   my $net;
   my $state;
 
@@ -921,7 +958,7 @@ sub QMNET {
     my ($netWeb, $netTopic) = Foswiki::Func::normalizeWebTopicName($web, $workflow);
     return $ignoreError ? "" : _inlineError("workflow not found") unless Foswiki::Func::topicExists($netWeb, $netTopic);
 
-    $net = Foswiki::Plugins::QMPlugin::Net->new($netWeb, $netTopic);
+    $net = $this->getNet($netWeb, $netTopic);
   } else {
     $state = $this->getState($web, $topic, $rev);
     if ($state) {
@@ -939,12 +976,8 @@ sub QMNET {
   my $footer = $params->{footer} // '';
   my $separator = $params->{separator} // '';
   my $icon = $params->{icon} // 'fa-circle';
+  my $sort = $params->{sort} // 'off';
 
-  my @items;
-
-  @items = $net->getSortedNodes() if $type eq 'nodes';
-  @items = $net->getSortedRoles() if $type eq 'roles';
-  @items = $net->getSortedEdges() if $type eq 'edges';
 
   my $include = $params->{include};
   my $exclude = $params->{exclude};
@@ -961,9 +994,7 @@ sub QMNET {
 
     unless ($state) {
       $state = $this->getState($web, $topic, $rev);
-      if ($state) {
-        $state->setWorkflow($workflow);
-      }
+      $state->setWorkflow($workflow) if $state;
     }
 
     if ($state) {
@@ -976,16 +1007,16 @@ sub QMNET {
   }
 
   my @filteredItems = ();
-  foreach my $item (@items) {
+  foreach my $item ($net->getSortedItems($type, $sort)) {
     my $id = $item->prop("id");
 
     next if defined $include && $id !~ /$include/;
     next if defined $exclude && $id =~ /$exclude/;
 
     if ($type eq 'edges') {
-      next if defined $from && $item->prop("from") !~ /$from/;
-      next if defined $to && $item->prop("to") !~ /$to/;
-      next if defined $action && $item->prop("action") !~ /$action/;
+      next if defined $from && $item->prop("from") ne $from;
+      next if defined $to && $item->prop("to") ne $to;
+      next if defined $action && $item->prop("action") ne $action;
     }
 
     push @filteredItems, $item;
@@ -1000,9 +1031,9 @@ sub QMNET {
     next if defined $exclude && $id =~ /$exclude/;
 
     if ($type eq 'edges') {
-      next if defined $from && $item->prop("from") !~ /$from/;
-      next if defined $to && $item->prop("to") !~ /$to/;
-      next if defined $action && $item->prop("action") !~ /$action/;
+      next if defined $from && $item->prop("from") ne $from;
+      next if defined $to && $item->prop("to") ne $to;
+      next if defined $action && $item->prop("action") ne $action;
     }
 
     $index++;
@@ -1010,10 +1041,8 @@ sub QMNET {
 
     my $line = $format;
     $line = $item->render($line, {icon => $icon});
-    $line =~ s/\$index\b/$index/g;
 
     push @results, $line if $line ne '';
-
     last if $limit && $index >= $limit;
   }
 
@@ -1021,11 +1050,14 @@ sub QMNET {
 
   my $result = $header.join($separator, @results).$footer;
   my $count = scalar(@results);
+  my $defaultNode = $net->getDefaultNode;
+  my $defaultID = $defaultNode->prop("id");
 
   $result =~ s/\$web\b/$web/g;
   $result =~ s/\$topic\b/$topic/g;
   $result =~ s/\$workflow\b/$workflow/g;
   $result =~ s/\$count\b/$count/g;
+  $result =~ s/\$defaultNode\b/$defaultID/g;
 
   return Foswiki::Func::decodeFormatTokens($result);
 }
@@ -1042,8 +1074,8 @@ sub QMSTATE {
   my ($this, $session, $params, $topic, $web) = @_;
 
   my $request = Foswiki::Func::getRequestObject();
-  my $rev = $params->{rev} || $request->param("rev") || "";
-  my $ignoreError = Foswiki::Func::isTrue($params->{ignoreerror}, 0);
+  my $rev = $params->{rev} || $request->param("rev");
+  my $ignoreError = _ignoreError($params);
   my $template = $params->{template} || 'qm::state';
   my $format = $params->{format} // Foswiki::Func::expandTemplate($template);
 
@@ -1064,7 +1096,7 @@ sub QMSTATE {
   return $ignoreError ? "" : _inlineError("qmstate workflow not found") unless defined $state->getNet();
 
   Foswiki::Plugins::JQueryPlugin::createPlugin('QMPlugin');
-  return Foswiki::Func::decodeFormatTokens($state->render($format));
+  return Foswiki::Func::decodeFormatTokens($state->render($format, $params));
 }
 
 
@@ -1085,12 +1117,14 @@ sub QMNODE {
   my $format = $params->{format} // '$id, $title, $message';
   my $rev = $params->{rev} || $request->param("rev");
   my $id = $params->{_DEFAULT} || $params->{id};
-  my $ignoreError = Foswiki::Func::isTrue($params->{ignoreerror}, 0);
+  my $ignoreError = _ignoreError($params);
 
   $topic = $params->{topic} if defined $params->{topic};
   ($web, $topic) = Foswiki::Func::normalizeWebTopicName($web, $topic);
 
   my $state = $this->getState($web, $topic, $rev);
+  return $ignoreError ? "" : _inlineError("no qmstate found") unless $state;
+
   my $net;
 
   if (defined $params->{workflow}) {
@@ -1100,7 +1134,7 @@ sub QMNODE {
     my ($netWeb, $netTopic) = Foswiki::Func::normalizeWebTopicName($web, $workflow);
     return $ignoreError ? "" : _inlineError("workflow not found") unless Foswiki::Func::topicExists($netWeb, $netTopic);
 
-    $net = Foswiki::Plugins::QMPlugin::Net->new($netWeb, $netTopic, $state);
+    $net = $this->getNet($netWeb, $netTopic, $state);
   } else {
     $net = $state->getNet();
   }
@@ -1138,12 +1172,14 @@ sub QMROLE {
   my $format = $params->{format} // '$members';
   my $rev = $params->{rev} || $request->param("rev");
   my $id = $params->{_DEFAULT} || $params->{id};
-  my $ignoreError = Foswiki::Func::isTrue($params->{ignoreerror}, 0);
+  my $ignoreError = _ignoreError($params);
 
   $topic = $params->{topic} if defined $params->{topic};
   ($web, $topic) = Foswiki::Func::normalizeWebTopicName($web, $topic);
 
   my $state = $this->getState($web, $topic, $rev);
+  return $ignoreError ? "" : _inlineError("no qmstate found") unless $state;
+
   my $net;
 
   if (defined $params->{workflow}) {
@@ -1153,7 +1189,7 @@ sub QMROLE {
     my ($netWeb, $netTopic) = Foswiki::Func::normalizeWebTopicName($web, $workflow);
     return $ignoreError ? "" : _inlineError("workflow not found") unless Foswiki::Func::topicExists($netWeb, $netTopic);
 
-    $net = Foswiki::Plugins::QMPlugin::Net->new($netWeb, $netTopic, $state);
+    $net = $this->getNet($netWeb, $netTopic, $state);
   } else {
     $net = $state->getNet();
   }
@@ -1184,7 +1220,7 @@ sub QMEDGE {
   #_writeDebug("called QMEDGE()");
 
   my $format = $params->{format} // '$from, $action, $to';
-  my $ignoreError = Foswiki::Func::isTrue($params->{ignoreerror}, 0);
+  my $ignoreError = _ignoreError($params);
 
   my $from = $params->{from};
   my $action = $params->{action};
@@ -1197,6 +1233,8 @@ sub QMEDGE {
   ($web, $topic) = Foswiki::Func::normalizeWebTopicName($web, $topic);
 
   my $state = $this->getState($web, $topic, $rev);
+  return $ignoreError ? "" : _inlineError("no qmstate found") unless $state;
+
   my $net;
 
   if (defined $params->{workflow}) {
@@ -1206,7 +1244,7 @@ sub QMEDGE {
     my ($netWeb, $netTopic) = Foswiki::Func::normalizeWebTopicName($web, $workflow);
     return $ignoreError ? "" : _inlineError("workflow not found") unless Foswiki::Func::topicExists($netWeb, $netTopic);
 
-    $net = Foswiki::Plugins::QMPlugin::Net->new($netWeb, $netTopic, $state);
+    $net = $this->getNet($netWeb, $netTopic, $state);
   } else {
     $net = $state->getNet();
   }
@@ -1240,7 +1278,7 @@ sub QMGRAPH {
 
   #_writeDebug("called QMGRAPH()");
 
-  my $ignoreError = Foswiki::Func::isTrue($params->{ignoreerror}, 0);
+  my $ignoreError = _ignoreError($params);
 
   unless (Foswiki::Func::getContext()->{GraphvizPluginEnabled}) {
     return $ignoreError ? "" : _inlineError("<nop>GraphvizPlugin not installed");
@@ -1254,6 +1292,8 @@ sub QMGRAPH {
   ($web, $topic) = Foswiki::Func::normalizeWebTopicName($web, $topic);
 
   my $state = $this->getState($web, $topic, $rev);
+  return $ignoreError ? "" : _inlineError("no qmstate found") unless $state;
+
   my $net;
 
   if (defined $params->{workflow}) {
@@ -1263,7 +1303,7 @@ sub QMGRAPH {
     my ($netWeb, $netTopic) = Foswiki::Func::normalizeWebTopicName($web, $workflow);
     return $ignoreError ? "" : _inlineError("workflow not found") unless Foswiki::Func::topicExists($netWeb, $netTopic);
 
-    $net = Foswiki::Plugins::QMPlugin::Net->new($netWeb, $netTopic, $state);
+    $net = $this->getNet($netWeb, $netTopic, $state);
   } else {
     $net = $state->getNet();
   }
@@ -1293,19 +1333,26 @@ sub QMBUTTON {
   $topic = $params->{topic} if defined $params->{topic};
   ($web, $topic) = Foswiki::Func::normalizeWebTopicName($web, $topic);
 
+  my $ignoreError = _ignoreError($params);
+
   my $state = $this->getState($web, $topic, $rev);
+  return $ignoreError ? "" : _inlineError("no qmstate found") unless $state;
+
   my $workflow = $params->{workflow} || $state->prop("workflow");
   $state->setWorkflow($workflow) if $workflow;
 
   return "" unless $workflow;
 
   my $action = $params->{action} // '';;
-  my @edges = $state->getPossibleEdges();
+  my @edges = grep {$_->prop("action") ne "_hidden_"} $state->getPossibleEdges();
   @edges = grep { $_->prop("action") =~ /^\Q$action\E$/i} @edges if $action;
 
   my $showComment = Foswiki::Func::isTrue($params->{showcomment}, 1);
   my $isEnabled = scalar(@edges) ? 1 : 0;
   my $isSingleAction = scalar(@edges) == 1 ? 1 : 0;
+  $isEnabled = 0 if defined $rev;
+
+  $rev //= '';
 
   my $title = $isSingleAction ? $edges[0]->prop("title") : "Change State";
   my $text = $params->{_DEFAULT} || $params->{text} || $title;
@@ -1319,6 +1366,7 @@ sub QMBUTTON {
   push @class, "jqButtonDisabled" unless $isEnabled;
   push @class, $class if $class;
   $class = join(" ", @class);
+
 
   my $result = $params->{format} // Foswiki::Func::expandTemplate($template) // '';
 
@@ -1337,29 +1385,26 @@ sub QMBUTTON {
 
 =begin TML
 
----++ ObjectMethod getState($web, $topic, $rev, $meta) -> $state
+---++ ObjectMethod getState($web, $topic, $rev, $meta, $force) -> $state
 
 get the workflow state of the given topic
 
 =cut
 
 sub getState {
-  my ($this, $web, $topic, $rev, $meta) = @_;
+  my ($this, $web, $topic, $rev, $meta, $force) = @_;
 
   $rev = $meta->getLoadedRev() if defined $meta;
-  $rev ||= 0;
-
-  #_writeDebug("getState($web, $topic, $rev)");
-
-  my $state;
 
   # get cached state
   my $key = _getWebTopicKey($web, $topic, $rev);
-  $state = $this->{_states}{$key};
+  my $state;
+  $state = $this->{_states}{$key} unless $force;
 
-  if (defined $state) {
-    return if !ref($state) && $state eq '_undef_';
-  } else {
+  unless (defined $state) {
+    _writeDebug("getState($web, $topic, ".($rev//'undef').")");
+    $this->{_states}{$key} = '_undef_'; # prevent deep recursion
+
     $state = Foswiki::Plugins::QMPlugin::State->new($web, $topic, $rev, $meta);
 
     # cache state
@@ -1371,12 +1416,37 @@ sub getState {
         $key = _getWebTopicKey($web, $topic, 0);
         $this->{_states}{$key} = $state;
       }
-    } else {
-      $this->{_states}{$key} = '_undef_';
     }
   }
 
-  return $state;
+  return ref($state) ? $state : undef;
+}
+
+=begin TML
+
+---++ ObjectMethod getNet($web, $topic, $state) -> $net
+
+returns a Foswiki::Plugins::QMPlugin::Net object and assignes the given state.
+
+=cut
+
+sub getNet {
+  my $this = shift;
+  my $web = shift;
+  my $topic = shift;
+  my $state = shift;
+
+  my $key = $web."::".$topic;
+  $key =~ s/\//./g;
+
+  my $net = $this->{_nets}{$key};
+  if ($net) {
+    $net->setState($state);
+  } else {
+    $this->{_nets}{$key} = $net = Foswiki::Plugins::QMPlugin::Net->new($web, $topic, $state, @_);
+  }
+
+  return $net;
 }
 
 =begin TML
@@ -1391,7 +1461,7 @@ sub getStates {
   my ($this, $web, $topic, $rev, $params) = @_;
 
   $rev ||= 0;
-  #_writeDebug("called getStates($web, $topic, $rev)");
+  _writeDebug("called getStates($web, $topic, $rev)");
 
   my @states = ();
   my $maxRev = $rev;
@@ -1399,44 +1469,63 @@ sub getStates {
   $maxRev ||= 1;
 
   my $untilState = $params->{until_state};
-  my $approvalID;
+  my $prevKey;
 
+  my $skip = $params->{skip} || 0;
+  my $limit = ($params->{limit} || 0) + $skip;
+  my $index = 0;
+  
   for (my $i = $maxRev ; $i > 0 ; $i--) {
     my $state = $this->getState($web, $topic, $i);
     next unless $state;
-    next unless $state->prop("changed") || $i == 1;
+    
+    # SMELL: too unreliable as by now
+    #next unless $state->prop("changed") || $i == 1;
 
-    my $net = $state->getNet();
-    next unless $net;
-    $approvalID = $net->getApprovalNode()->prop("id") unless defined $approvalID;
-    $untilState =~ s/\$approval(ID)?\b/$approvalID/g if defined $untilState;
-
-    # skip versions with same state
     my $date = $state->prop("date");
+    my $edge = $state->getCurrentEdge();
+    my $key = ($edge ? $edge->stringify() : "").", $date";
+    next if $prevKey && $key eq $prevKey;
+    $prevKey = $key;
 
     my $workflow = $params->{workflow} || $state->prop("workflow");
     $state->setWorkflow($workflow) if $workflow;
     next unless defined $state->prop("id");
 
+    my @comments = map {$_->{text}} $state->getComments();
+    my $comment = $comments[-1] // '';
+
     # filter
     next if defined $params->{filter_action} && ($state->prop("reviewAction") || $state->prop("previousAction")) !~ /$params->{filter_action}/;
     next if defined $params->{filter_author} && $state->prop("author") !~ /$params->{filter_author}/;
-    next if defined $params->{filter_commet} && $state->prop("comment") !~ /$params->{filter_comment}/;
+    next if defined $params->{filter_comment} && $comment !~ /$params->{filter_comment}/;
     next if defined $params->{from_date} && $date < $params->{from_date};
     last if defined $params->{to_date} && $date > $params->{to_date};
     next if defined $params->{filter_message} && $state->prop("message") !~ /$params->{filter_message}/;
     next if defined $params->{filter_reviewer} && join(", ", $state->getReviewedBy()) !~ /$params->{filter_reviewer}/;
     next if defined $params->{filter_state} && $state->prop("id") !~ /$params->{filter_state}/;
 
+    $index++;
+    next if $index <= $skip;
     push @states, $state;
 
     # limit
     last if defined $params->{until_action} && ($state->prop("reviewAction") || $state->prop("previousAction")) =~ /$params->{until_action}/;
     last if defined $params->{until_author} && $state->prop("author") =~ /$params->{until_author}/;
-    last if defined $params->{until_commet} && $state->prop("comment") =~ /$params->{until_comment}/;
+    last if defined $params->{until_comment} && $comment =~ /$params->{until_comment}/;
     last if defined $params->{until_message} && $state->prop("message") =~ /$params->{until_message}/;
     last if defined $params->{until_reviewer} && join(", ", $state->getReviewedBy()) =~ /$params->{until_reviewer}/;
+
+    if (defined $untilState && $untilState =~ /\$approval(ID)?\b/) {
+      my $net = $state->getNet();
+      next unless $net;
+
+      my $approvalRegex = '\b('. join("|", map {$_->prop("id")} $net->getApprovalNodes). ')\b';
+      $untilState =~ s/\$approval(ID)?\b/$approvalRegex/g;
+    }
+
     last if defined $untilState && $state->prop("id") =~ /$untilState/;
+    last if $limit && $index >= $limit;
   }
 
   return reverse @states;
@@ -1467,25 +1556,8 @@ sub registerCommandHandler {
 
   #_writeDebug("registerCommandHandler for $handler->{id} in $handler->{package}");
 
-  if (defined $handler->{package} && defined $handler->{function}) {
-    my $pkg = $handler->{package};
-
-    if (defined $pkg) {
-      my $path = $pkg . ".pm";
-      $path =~ s/::/\//g;
-
-      eval { require $path };
-      if ($@) {
-        print STDERR "ERROR: $@\n";
-        return;
-      }
-    }
-
-    $handler->{callback} = \&{$handler->{package} . "::" . $handler->{function}};
-  }
-
-  $this->{_commandHandler}{$handler->{id}} ||= ();
-  push @{$this->{_commandHandler}{$handler->{id}}}, $handler;
+  $this->{_commandHandler}{lc($handler->{id})} ||= ();
+  push @{$this->{_commandHandler}{lc($handler->{id})}}, $handler;
 }
 
 =begin TML 
@@ -1499,12 +1571,49 @@ get the list of registered handlers for a specified action id
 sub getCommandHandlers {
   my ($this, $id) = @_;
 
-  unless (defined $this->{_commandHandler}{$id}) {
+  $id = lc($id);
+  my $handlers = $this->{_commandHandler}{$id};
+
+  unless (defined $handlers) {
     print STDERR "ERROR: unknown command '$id'\n";
     return;
   }
 
-  return @{$this->{_commandHandler}{$id}};
+  foreach my $handler (@$handlers) {
+    if (defined($handler->{package}) && defined($handler->{function}) && !defined($handler->{callback})) {
+
+      my $pkg = $handler->{package};
+
+      my $pm = "$pkg.pm";
+      $pm =~ s/::/\//g;
+      
+      eval { require $pm };
+      if ($@) {
+        print STDERR "ERROR: $@\n";
+        return;
+      };
+
+      $handler->{callback} = \&{$handler->{package} . "::" . $handler->{function}};
+    }
+  }
+
+  return @$handlers;
+}
+
+=begin TML
+
+---++ ObjectMethod redirectUrl(url)
+
+the redirect property records the need of the system to initiate a redirect
+at the end of the processing queue
+
+=cut
+
+sub redirectUrl {
+  my ($this, $url) = @_;
+
+  $this->{_redirectUrl} = $url if defined $url;
+  return $this->{_redirectUrl};
 }
 
 =begin TML
@@ -1520,22 +1629,34 @@ sub solrIndexTopicHandler {
 
   _writeDebug("called solrIndexTopicHandler($web, $topic)");
   my $state = $this->getState($web, $topic);
+  return unless $state;
 
-  return unless $state && $state->prop("workflow");
+  my $workflow = $state->prop("workflow");
+  return unless $state;
 
   my $node = $state->getCurrentNode();
   return unless $node;
 
-  my $nodeId = $state->prop("id"),
+  my $nodeId = $state->prop("id");
+  return unless defined $nodeId;
+
   my $nodeTitle = $state->expandValue($node->prop("title"));
   my @reviewers = sort $state->getReviewers();
   my @pendingApprovers = sort map{$_->prop("wikiName") || $_->prop("id")} $state->getPendingApprovers();
   my @pendingReviewers = sort map{$_->prop("wikiName") || $_->prop("id")} $state->getPendingReviewers();
   my @possibleReviewers = sort map{$_->prop("wikiName") || $_->prop("id")} $state->getPossibleReviewers();
 
-  $doc->add_fields(
-    state => $nodeId,
+  my $stateField = $indexer->getField($doc, "state");
+  if ($stateField) {
+    $stateField->value($nodeId);
+  } else {
+    $doc->add_fields(
+      state => $nodeId
+    );
+  }
 
+  $doc->add_fields(
+    field_QMWorkflow_s => $workflow,
     field_QMStateID_s => $nodeId,
     field_QMStateTitle_s => $nodeTitle,
 
@@ -1552,6 +1673,39 @@ sub solrIndexTopicHandler {
 
 =begin TML
 
+
+---++ ObjectMethod solrIndexAttachmentHandler($indexer, $doc, $web, $topic, $attachment) 
+
+hooks into the solr indexer and add workflow fields
+
+=cut
+
+sub solrIndexAttachmentHandler {
+  my ($this, $indexer, $doc, $web, $topic, $attachment) = @_;
+
+  _writeDebug("called solrIndexAttachmentHandler($web, $topic)");
+
+  my $state = $this->getState($web, $topic);
+  return unless $state && $state->prop("workflow");
+
+  my $node = $state->getCurrentNode();
+  return unless $node;
+
+  my $nodeId = $state->prop("id");
+  return unless defined $nodeId;
+
+  my $nodeTitle = $state->expandValue($node->prop("title"));
+
+  $doc->add_fields(
+    state => $nodeId,
+
+    field_QMStateID_s => $nodeId,
+    field_QMStateTitle_s => $nodeTitle,
+  );
+}
+
+=begin TML
+
 ---++ ObjectMethod dbCacheIndexTopicHandler($db, $obj, $web, $topic, $meta, $text)
 
 hooks into the dbcache indexer and add workflow fields
@@ -1561,11 +1715,10 @@ hooks into the dbcache indexer and add workflow fields
 sub dbCacheIndexTopicHandler {
   my ($this, $db, $obj, $web, $topic, $meta, $text) = @_;
 
-  _writeDebug("called dbCacheIndexTopicHandler($web, $topic)");
   my $state = $this->getState($web, $topic, undef, $meta);
-
   return unless $state && $state->prop("workflow");
 
+  _writeDebug("called dbCacheIndexTopicHandler($web, $topic)");
   _writeDebug("workflow=".$state->prop("workflow"));
 
   my $qmo = $obj->fastget("qmstate");
@@ -1574,11 +1727,12 @@ sub dbCacheIndexTopicHandler {
   return unless $node;
 
   my $title = $state->expandValue($node->prop("title"));
-  my $reviewers = join(", ", sort $state->getReviewers());
+  my $reviewers = join(", ", sort map {$_->prop("wikiName")} $state->getReviewers());
   my $pendingApprovers= join(", ", sort map{$_->prop("wikiName") || $_->prop("id")} $state->getPendingApprovers());
   my $pendingReviewers = join(", ", sort map{$_->prop("wikiName") || $_->prop("id")} $state->getPendingReviewers());
   my $possibleReviewers = join(", ", map{$_->prop("wikiName") || $_->prop("id")} sort $state->getPossibleReviewers());
   my $progress = ($state->getCurrentSignOff() // 0) * 100;
+  my $index = $node->index;
 
   unless ($qmo) {
     $qmo = $db->{archivist}->newMap();
@@ -1587,6 +1741,7 @@ sub dbCacheIndexTopicHandler {
   }
 
   $qmo->set('title', $title);
+  $qmo->set('index', $index);
   $qmo->set('pendingApprovers', $pendingApprovers) if $pendingApprovers;
   $qmo->set('pendingReviewers', $pendingReviewers) if $pendingReviewers;
   $qmo->set('possibleReviewers', $possibleReviewers) if $possibleReviewers;
@@ -1594,9 +1749,41 @@ sub dbCacheIndexTopicHandler {
   $qmo->set('progress', $progress);
 }
 
+sub setTemplateName {
+  my ($this, $web, $topic) = @_;
+
+  my $request = Foswiki::Func::getRequestObject();
+  my $rev = $request->param("rev");
+  my $template = $request->param("template");
+  return if $template;
+  
+  return unless Foswiki::Func::topicExists($web, $topic);
+  my ($meta) = Foswiki::Func::readTopic($web, $topic, $rev);
+  my $qmData = $meta->get("QMSTATE");
+  return unless $qmData;
+
+  _setPreferenceName('VIEW_TEMPLATE', $qmData->{viewTemplate});
+  _setPreferenceName('EDIT_TEMPLATE', $qmData->{editTemplate});
+  _setPreferenceName('PRINT_TEMPLATE', $qmData->{printTemplate});
+}
+
 ###
 ### private static functions
 ###
+
+sub _setPreferenceName {
+  my ($var, $val) = @_;
+
+  return unless $val;
+
+  $var =~ s/^PRINT_/VIEW_/g;    #sneak in VIEW again
+
+  if ($Foswiki::Plugins::VERSION >= 2.1) {
+    Foswiki::Func::setPreferencesValue($var, $val);
+  } else {
+    $Foswiki::Plugins::SESSION->{prefs}->pushPreferenceValues('SESSION', {$var => $val});
+  }
+}
 
 sub _inlineError {
   my $msg = shift;
@@ -1671,6 +1858,18 @@ sub _sortRecords {
   }
 
   return @result;
+}
+
+sub _ignoreError {
+  my $params = shift;
+
+  return Foswiki::Func::isTrue($params->{ignoreerror}, 0) 
+    if defined $params->{ignoreerror};
+
+  return (Foswiki::Func::isTrue($params->{warn}, 1) ? 0 : 1)
+    if defined $params->{warn};
+
+  return 0;
 }
 
 1;

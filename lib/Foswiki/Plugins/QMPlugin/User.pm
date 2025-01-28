@@ -1,6 +1,6 @@
 # Plugin for Foswiki - The Free and Open Source Wiki, https://foswiki.org/
 #
-# QMPlugin is Copyright (C) 2019-2021 Michael Daum http://michaeldaumconsulting.com
+# QMPlugin is Copyright (C) 2019-2025 Michael Daum http://michaeldaumconsulting.com
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -71,12 +71,13 @@ sub new {
     $this->{email} = $this->{id} = $this->{displayName} = $id;
     $this->{type} = 'email';
   } else {
+    $id =~ s/^$Foswiki::cfg{UsersWebName}\.//;
+
     my $cuid = Foswiki::Func::getCanonicalUserID($id);
     return unless $cuid && _users->userExists($cuid);
     $this->{id} = $cuid;
     $this->{type} = 'user';
   }
-
 
   return $this;
 }
@@ -203,6 +204,7 @@ returns the primary email of this user
 sub getEmails {
   my $this = shift;
 
+  #SMELL
   my @emails = ();
   push @emails, $this->prop("email");
   return @emails;

@@ -1,6 +1,6 @@
 # Plugin for Foswiki - The Free and Open Source Wiki, https://foswiki.org/
 #
-# QMPlugin is Copyright (C) 2019-2021 Michael Daum http://michaeldaumconsulting.com
+# QMPlugin is Copyright (C) 2019-2025 Michael Daum http://michaeldaumconsulting.com
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -25,12 +25,10 @@ use Foswiki::Plugins::QMPlugin();
 use constant TRACE => 0; # toggle me
 
 sub afterSaveHandler {
-  my $command = shift;
+  my ($command, $state) = @_;
 
   _writeDebug("called afterSaveHandler()");
 
-  my $state = $command->getSource->getNet->getState();
-  
   return $state->sendNotification();
 }
 

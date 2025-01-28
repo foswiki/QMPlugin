@@ -1,8 +1,20 @@
 .qmStatusTable th {
   white-space:nowrap;
 }
-.qmStatusTable td {
+.qmStatusTable > tbody > tr > td {
   width:100%;
+}
+.qmStatusTable td,
+.qmStatusTable th {
+  padding:0.1538em 0.5769em 0.1538em 0em;
+  vertical-align:top;
+}
+.qmWorkflowInfo.foswikiSuccessMessage:before, 
+.qmWorkflowInfo.foswikiErrorMessage:before, 
+.qmWorkflowInfo.foswikiInfoMessage:before, 
+.qmWorkflowInfo.foswikiTipMessage:before,
+.qmWorkflowInfo.foswikiWarningMessage:before {
+  margin-top:0.1538em;
 }
 
 .qmProgressBar,
@@ -65,7 +77,7 @@ tr.qmApproved td a {
   margin: 0 0 0.5em 0;
   overflow:hidden;
   box-sizing:border-box;
-  transition:box-shadow 500ms ease,border 200ms ease
+  transition:200ms ease;
 }
 .qmAction:hover,
 .qmAction.qmSelected {
@@ -80,7 +92,7 @@ tr.qmApproved td a {
   margin-right:0.3em;
 }
 .qmAction.qmSelected .foswikiIcon {
-  color: var(--color-primary, #2375c5);
+  color: var(--color-selection-foreground, #fff);
 }
 .qmAction input[type=radio] {
   display:none;

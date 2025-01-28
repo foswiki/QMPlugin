@@ -1,6 +1,6 @@
 # Plugin for Foswiki - The Free and Open Source Wiki, https://foswiki.org/
 #
-# QMPlugin is Copyright (C) 2019-2021 Michael Daum http://michaeldaumconsulting.com
+# QMPlugin is Copyright (C) 2019-2025 Michael Daum http://michaeldaumconsulting.com
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -61,6 +61,7 @@ sub new {
   my $class = shift;
   my $id = shift;
 
+  $id =~ s/^$Foswiki::cfg{UsersWebName}\.//;
   return unless Foswiki::Func::isGroup($id);
 
   my $this = $class->SUPER::new();

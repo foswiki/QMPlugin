@@ -1,7 +1,7 @@
 /*
  * QMPlugin 
  *
- * (c)opyright 2019-2020 Michael Daum http://michaeldaumconsulting.com
+ * (c)opyright 2019-2025 Michael Daum http://michaeldaumconsulting.com
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License

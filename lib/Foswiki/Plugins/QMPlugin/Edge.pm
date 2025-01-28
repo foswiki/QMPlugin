@@ -1,6 +1,6 @@
 # Plugin for Foswiki - The Free and Open Source Wiki, https://foswiki.org/
 #
-# QMPlugin is Copyright (C) 2019-2021 Michael Daum http://michaeldaumconsulting.com
+# QMPlugin is Copyright (C) 2019-2025 Michael Daum http://michaeldaumconsulting.com
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -30,6 +30,7 @@ use warnings;
 
 use Foswiki::Func();
 use Foswiki::Plugins::QMPlugin::Base();
+#use Data::Dump qw(dump); # disable for production
 our @ISA = qw( Foswiki::Plugins::QMPlugin::Base );
 
 =begin TML
@@ -50,6 +51,7 @@ use constant PROPS => qw(
   trigger
   enabled
   notify
+  mailTemplate
 );
 
 =begin TML
@@ -107,8 +109,10 @@ sub toNode {
 
 ---++ ObjectMethod getSignOff() -> $float
 
-get the minimum percentage required to transition this edge;
-returned values are between 0 and 1
+get the number of signatures required to transition this edge;
+
+This can either be a relative value as a percent value between 0 and 1 if the value is preceeded with a percent sign,
+or a value > 1 representing the absolute number of signatures required.
 
 =cut
 
@@ -122,11 +126,24 @@ sub getSignOff {
 
   if ($signOff =~ /^(.*)%$/) {
     $signOff = $1 / 100;
-  } else {
-    $signOff /= 100 if $signOff > 1;
   }
 
   return $signOff;
+}
+
+=begin TML
+
+---++ ObjectMethod isRelativeSignOff() -> $boolean
+
+returns true of a relative signoff has been specified using a percentage
+
+=cut
+
+sub isRelativeSignOff {
+  my $this = shift;
+
+  my $signOff = $this->prop("signOff");
+  return $signOff =~ /%\s*$/ ? 1 : 0;
 }
 
 =begin TML
@@ -178,8 +195,6 @@ sub getReviewers {
 
 returns a list of users that have to be notified
 
-TODO: cache?
-
 =cut
 
 sub getNotify {
@@ -196,7 +211,10 @@ sub getNotify {
     # role
     my $role = $this->getNet->getRole($id);
     if ($role) {
-      $reviewers{$_->prop("id")} = $_ foreach $role->getMembers();
+      $notify = $this->expandValue($role->prop("notify"));
+      unless ($notify =~ /^(none|nobody)$/i) {
+        $reviewers{$_->prop("id")} = $_ foreach $role->getMembers();
+      }
       next;
     } 
 
@@ -211,7 +229,10 @@ sub getNotify {
     my $group = $this->getCore->getGroup($id);
     if ($group) {
       $reviewers{$_->prop("id")} = $_ foreach $group->getMembers();
+      next;
     }
+
+    #print STDERR "WARNING: undefined type of member '$id' (not a role, user or group)\n"
   }
 
   return values %reviewers;
@@ -226,12 +247,48 @@ returns the list of email adressess to notify when this edge is transitioned
 =cut
 
 sub getEmails {
-  my ($this) = @_;
+  my $this = shift;
 
-  my %emails = map {$_->prop("email") => 1} $this->getNotify();
+  my %emails = ();
+
+  my $notify = $this->expandValue($this->prop("notify"));
+  $notify =~ s/^\s+|\s+$//g;
+  return if $notify =~ /^(none|nobody)$/i;
+
+  foreach my $id (split(/\s*,\s*/, $this->expandValue($notify))) {
+
+    # role
+    my $role = $this->getNet->getRole($id);
+    if ($role) {
+      $emails{$_} = 1 foreach $role->getEmails();
+      next;
+    } 
+
+    # user
+    my $user = $this->getCore->getUser($id);
+    if ($user) {
+      $emails{$_} = 1 foreach $user->getEmails();
+      next;
+    }
+
+    # group
+    my $group = $this->getCore->getGroup($id);
+    if ($group) {
+      $emails{$_} = 1 foreach $group->getEmails();
+      next;
+    }
+
+    # email
+    if ($id =~ /^.*\@.*$/) {
+      $emails{$id} = 1;
+      next;
+    }
+
+    #print STDERR "WARNING: undefined type of member '$id' (not a role, user or group)\n"
+  }
+
   my @emails = sort keys %emails;
-
-  return @emails;
+  return wantarray ? @emails : scalar(@emails);
 }
 
 =begin TML
@@ -256,7 +313,9 @@ sub isEnabled {
     return 0 unless Foswiki::Func::isTrue($enabled);
   }
 
-  return defined($user) ? $this->hasAccess("allowed", $user) : 1;
+  return 1 if Foswiki::Func::getContext()->{cronjob};
+  return 1 unless defined $user;
+  return $this->hasAccess("allowed", $user);
 }
 
 =begin TML
@@ -274,36 +333,53 @@ returns true if this edge is enabled and triggerable, that is:
 sub isTriggerable {
   my ($this, $user) = @_;
 
-  return 0 unless $this->isEnabled($user);;
+  return 0 unless $this->isEnabled($user);
 
   my $trigger = $this->prop("trigger");
   return 0 unless (defined($trigger) && $trigger ne '');
 
   $trigger = $this->expandValue($trigger);
-  return 0 unless Foswiki::Func::isTrue($trigger, 0);
 
+  return 0 unless Foswiki::Func::isTrue($trigger, 0);
   return 1;
 }
 
 =begin TML
 
----++ ObjectMethod execute()
+---++ ObjectMethod render($format, $params) -> $string
+
+render this edge given the specified format string
+
+=cut
+
+sub render {
+  my ($this, $format, $params) = @_;
+
+  my $result = $format;
+  $result =~ s/\$emails\b/join(", ", sort $this->getEmails())/ge;
+  $result = $this->SUPER::render($result, $params);
+
+  return $result;
+}
+
+=begin TML
+
+---++ ObjectMethod execute($state)
 
 execute all commands of this edge 
 
 =cut
 
 sub execute {
-  my $this = shift;
+  my ($this, $state) = @_;
+
+  return unless $state;
 
   my $string = $this->expandValue($this->prop("command"));
   return unless $string;
 
-  my $state = $this->getNet->getState;
-  return unless $state;
-
   while ($string !~ /^\s*$/) {
-    $this->writeDebug("parsing command: $string");
+    $this->writeDebug("parsing command: '$string'");
     my $params = {};
     my $id;
 
@@ -313,7 +389,7 @@ sub execute {
       $params = $2;
       if (defined $params) {
         $params =~ s/\\//g;
-        $params = new Foswiki::Attrs($params);
+        $params = Foswiki::Attrs->new($params);
       }
     } elsif ($string =~ s/^[\s,]+//) {
       # command separator
@@ -323,13 +399,51 @@ sub execute {
     }
 
     # queue command
+    #$this->writeDebug("queueCommand($id) params=".dump($params));
     $state->queueCommand($this, $id, $params);
   }
 
-  if ($string ne "") {
-    print STDERR "ERROR: stuck when parsing command '$string'\n";
+  unless ($string =~ /^\s*$/) {
+    print STDERR "ERROR: stuck when parsing edge command '$string' in state ".$state->{id}." of workflow ".$state->prop("workflow")."\n";
   }
 
+}
+
+=begin TML
+
+---++ ObjectMethod asJson($state)
+
+returns a json object representing this edge
+
+=cut
+
+sub asJson {
+  my ($this) = @_;
+
+  my $json = {};
+
+  foreach my $key (sort $this->props) {
+
+    if ($key eq 'from') {
+      $json->{$key} = $this->fromNode->asJson();
+      next;
+    } 
+
+    if ($key eq 'to') {
+      $json->{$key} = $this->toNode->asJson();
+      next;
+    } 
+
+    if ($key eq 'dialog') {
+      my %params = Foswiki::Func::extractParameters($this->prop($key));
+      $json->{$key} = \%params;
+      next;
+    }
+    
+    $json->{$key} = $this->renderProp($key);
+  }
+  
+  return $json;
 }
 
 1;

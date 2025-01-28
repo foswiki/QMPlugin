@@ -1,6 +1,6 @@
 # Plugin for Foswiki - The Free and Open Source Wiki, https://foswiki.org/
 #
-# QMPlugin is Copyright (C) 2019-2021 Michael Daum http://michaeldaumconsulting.com
+# QMPlugin is Copyright (C) 2019-2025 Michael Daum http://michaeldaumconsulting.com
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -103,34 +103,34 @@ sub finish {
 
 =begin TML
 
----++ ObjectMethod execute()
+---++ ObjectMethod execute($state)
 
 handle and destroy
 
 =cut
 
 sub execute {
-  my $this = shift;
+  my ($this, $state) = @_;
 
-  $this->handle();
+  $this->handle($state);
   $this->finish();
 }
 
 =begin TML
 
----++ ObjectMethod handle()
+---++ ObjectMethod handle($state)
 
 execute the command
 
 =cut
 
 sub handle {
-  my $this = shift;
+  my ($this, $state) = @_;
 
   _writeDebug("handle command $this->{_handler}{id}");
   _writeDebug("calling handler for source ".$this->{_source}->stringify()) if TRACE;
 
-  &{$this->{_handler}{callback}}($this);
+  &{$this->{_handler}{callback}}($this, $state);
 }
 
 sub _writeDebug {

@@ -1,6 +1,6 @@
 # Plugin for Foswiki - The Free and Open Source Wiki, https://foswiki.org/
 #
-# QMPlugin is Copyright (C) 2019-2021 Michael Daum http://michaeldaumconsulting.com
+# QMPlugin is Copyright (C) 2019-2025 Michael Daum http://michaeldaumconsulting.com
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -60,6 +60,9 @@ sub new {
   my $class = shift;
 
   my $this = $class->SUPER::new(@_);
+
+  my $approvalID = Foswiki::Func::getPreferencesValue("QMPLUGIN_APPROVAL") || 'approved';
+  $this->{_isApprovalNode} = ($this->{id} =~ s/\*$// || $this->{id} eq $approvalID) ? 1 : 0;
   $this->{title} //= $this->{id};
 
   $this->index($this->getNet()->{_nodeCounter}++);
@@ -145,6 +148,20 @@ sub getIncomingEdges {
 
 =begin TML
 
+---++ ObjectMethod isApprovalNode -> $boolean
+
+returns true if this is an approval node
+
+=cut
+
+sub isApprovalNode {
+  my $this = shift;
+
+  return $this->{_isApprovalNode};
+}
+
+=begin TML
+
 ---++ ObjectMethod getNextNodes() -> @nodes
 
 get the list of nodes of outging edges from this node
@@ -194,7 +211,6 @@ sub getACL {
   my %list = ();
 
   foreach my $id (split(/\s*,\s*/, $list)) {
-    next if $id =~ /^(nobody)$/i;
 
     # role
     my $role = $this->getNet->getRole($id);
@@ -204,11 +220,9 @@ sub getACL {
       next;
     } 
 
-    # user
-    my $user = $this->getCore->getUser($id);
-    if ($user) {
-      $list{$user->prop("wikiName")} = $user;
-      next;
+    # nobody is admin
+    if ($id =~ /^(none|nobody)$/i) {
+      $id = $Foswiki::cfg{AdminUserWikiName};
     }
 
     # group
@@ -218,7 +232,14 @@ sub getACL {
       next;
     }
 
-    print STDERR "WARNING: undefined type of member '$id' (not a role, user or group)\n"
+    # user
+    my $user = $this->getCore->getUser($id);
+    if ($user) {
+      $list{$user->prop("wikiName")} = $user;
+      next;
+    }
+
+    #print STDERR "WARNING: undefined type of member '$id' (not a role, user or group)\n"
   }
 
   my @result = sort keys %list;  

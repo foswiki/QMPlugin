@@ -1,13 +1,1 @@
-%TMPL:INCLUDE{"qmpluginnotify"}%
-
-%TMPL:DEF{"qm::notify::body"}%%{}%
-%TRANSLATE{"Hello"}%,
-
-%TRANSLATE{"We would like to inform you that the topic '[_1]' needs your attention."
-  arg1="%GETTOPICTITLE{"%WEB%.%TOPIC%"}%"
-}%
-
-%TRANSLATE{"Please review the topic at [_1]." args="%SCRIPTURL{view}%/%WEB%/%TOPIC%"}%
-
-%TRANSLATE{"Best Regards, Your Wiki."}%
-%TMPL:END%
+%TMPL:INCLUDE{"QMPluginReminder"}%

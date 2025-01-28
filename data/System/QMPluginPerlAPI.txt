@@ -1,9 +1,6 @@
-%META:TOPICINFO{author="micha" comment="" date="1589461281" format="1.1" version="1"}%
+%META:TOPICINFO{author="ProjectContributor" comment="" date="1738061533" format="1.1"  version="1"}%
 %META:TOPICPARENT{name="QMPlugin"}%
 ---+ QMPlugin Perl API
-<!--
-   * Set EDITCHAPTERPLUGIN_ENABLED = off
--->
 
 %TOC%
 
@@ -17,4 +14,3 @@
 %INCLUDE{"doc:Foswiki::Plugins::QMPlugin::Review" level="2"}%
 %INCLUDE{"doc:Foswiki::Plugins::QMPlugin::Role" level="2"}%
 %INCLUDE{"doc:Foswiki::Plugins::QMPlugin::Utils" level="2"}%
-

@@ -1,0 +1,114 @@
+%META:TOPICINFO{author="micha" comment="reprev" date="1725006637" format="1.1" reprev="9" version="11"}%
+%META:TOPICPARENT{name="QMPlugin"}%
+%{ WARNING: Please do not modify this template. Create a skin overlay instead. }%
+
+%TMPL:DEF{"qm::notify"}%%TMPL:P{"qm::notify::init"}%%TMPL:P{"qm::notify::header"}%%TMPL:P{"qm::notify::body"}%%TMPL:END%
+
+%{ header definitions }%
+%TMPL:DEF{"qm::notify::header"}%
+%TMPL:P{"qm::notify::header::from"}%
+%TMPL:P{"qm::notify::header::to"}%
+%TMPL:P{"qm::notify::header::subject"}%
+%TMPL:P{"qm::notify::header::priority"}%
+%TMPL:P{"qm::notify::header::misc"}%
+%TMPL:END%
+
+%TMPL:DEF{"qm::notify::header::from"}%From: %WIKITOOLNAME% Workflow <%WIKIAGENTEMAIL%>%TMPL:END%
+%TMPL:DEF{"qm::notify::header::to"}%To: %FORMATLIST{"%URLPARAM{"recipient"}%"
+                                          null="%qm_emails%"
+                                          format="$percntUSERINFO{\"$1\" format=\"$emails\"}$percnt"
+                                        }%%TMPL:END%
+
+%TMPL:DEF{"qm::notify::header::subject"}%Subject: %WIKITOOLNAME% - %GETTOPICTITLE{"%WEB%.%HOMETOPIC%"}% - %TRANSLATE{"Workflow notification regarding [_1]" arg1="%GETTOPICTITLE{"%WEB%.%TOPIC%"}%"}%: %TRANSLATE{"%qm_toNodeTitle%"}%%TMPL:END%
+%TMPL:DEF{"qm::notify::header::priority"}%X-Priority: 2%TMPL:END%
+%TMPL:DEF{"qm::notify::header::misc"}%Auto-Submitted: auto-generated
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="=_=0i0k0i0w0s0o0fXuOi0E0A"
+%TMPL:END%
+
+%TMPL:DEF{"qm::notify::body::text::header"}%
+This is a multi-part message in MIME format.
+--=_=0i0k0i0w0s0o0fXuOi0E0A
+Content-Type: text/plain; charset=%CHARSET%
+Content-Transfer-Encoding: 8bit
+%TMPL:END%
+
+%TMPL:DEF{"qm::notify::body::html::header"}%
+--=_=0i0k0i0w0s0o0fXuOi0E0A
+Content-Type: text/html; charset=%CHARSET%
+Content-Transfer-Encoding: 8bit
+%TMPL:END%
+
+%{ body definitions }%
+%TMPL:DEF{"qm::notify::body"}%%TMPL:P{"qm::notify::body::text::header"}%
+%TMPL:P{"qm::notify::body::text"}%
+%TMPL:P{"qm::notify::body::html::header"}%
+%TMPL:P{"qm::notify::body::html"}%%TMPL:END%
+
+%{ text body}%
+%TMPL:DEF{"qm::notify::body::text"}%
+%TMPL:P{"qm::notify::greeting::text"}%
+
+%TRANSLATE{"We would like to inform you about current status changes:"}%
+
+   * %TRANSLATE{"Topic"}%: %GETTOPICTITLE{"%WEB%.%TOPIC%"}%
+   * %TRANSLATE{"Action"}%: %TRANSLATE{"%qm_actionTitle%"}%
+   * %TRANSLATE{"New Status"}%: %TRANSLATE{"%qm_toNodeTitle%"}%%IF{"'%qm_authorTitle%'!='AdminUser'" then="
+   * %TRANSLATE{"Editor"}%:  %qm_authorTitle%"}%
+%TMPL:P{"qm::notify::body::text::reviews"}%   
+
+%TRANSLATE{"Please review the topic at [_1]." 
+   arg1="%SCRIPTURL{"view" topic="%WEB%.%TOPIC%"}%"
+}%
+
+%TMPL:P{"qm::notify::closing::text"}%
+%TMPL:END%
+
+%{ html body}%
+%TMPL:DEF{"qm::notify::body::html"}%
+%TMPL:P{"qm::notify::title::html"}%
+%TMPL:P{"qm::notify::greeting::html"}%
+<p>
+%TRANSLATE{"We would like to inform you about current status changes:"}%
+</p>
+<ul>
+   <li> %TRANSLATE{"Topic"}%: <a href='%SCRIPTURL{"view" topic="%WEB%.%TOPIC%"}%'>%GETTOPICTITLE{"%WEB%.%TOPIC%"}%</a> </li>
+   <li> %TRANSLATE{"Action"}%: %TRANSLATE{"%qm_actionTitle%"}% </li>
+   <li> %TRANSLATE{"New Status"}%: %TRANSLATE{"%qm_toNodeTitle%"}% </li>%IF{"'%qm_authorTitle%'!='AdminUser'" then="
+   <li> %TRANSLATE{"Editor"}%:  %qm_authorTitle% </li>"}%
+</ul>
+
+%TMPL:P{"qm::notify::body::html::reviews"}%   
+
+<p>
+%TRANSLATE{"Please review the topic at [_1]." 
+   arg1="<a href='%SCRIPTURL{"view" topic="%WEB%.%TOPIC%"}%'>%SCRIPTURL{"view" topic="%WEB%.%TOPIC%"}%</a>"
+}%
+</p>
+%TMPL:P{"qm::notify::closing::html"}%
+%TMPL:END%
+
+%TMPL:DEF{"qm::notify::greeting::text"}%%TRANSLATE{"Hello"}%,%TMPL:END%
+%TMPL:DEF{"qm::notify::closing::text"}%%TRANSLATE{"Best Regards, [_1]Your Wiki Team." arg1=""}%%TMPL:END%
+
+%TMPL:DEF{"qm::notify::title::html"}%<h2>%GETTOPICTITLE{"%WEB%.%TOPIC%"}%</h2>%TMPL:END%
+%TMPL:DEF{"qm::notify::greeting::html"}%<b>%TRANSLATE{"Hello"}%,</b>%TMPL:END%
+%TMPL:DEF{"qm::notify::closing::html"}%<p>%TRANSLATE{"Best Regards, [_1]Your Wiki Team." arg1="<br />"}%</p>%TMPL:END%
+
+%TMPL:DEF{"qm::notify::body::text::reviews"}%%QMSTATE{
+  format="$reviews"
+  reviewheader="$n()%TRANSLATE{"Comments"}%:$n()$n()"
+  reviewformat="$wikiUserTitle($author): $comment"
+  reviewseparator="$n()"
+}%%TMPL:END%
+
+%TMPL:DEF{"qm::notify::body::html::reviews"}%%QMSTATE{
+  format="$reviews"
+  reviewheader="<b>%TRANSLATE{"Comments"}%:</b>$n()"
+  reviewformat="<p>$wikiUserTitle($author): $comment</p>"
+  reviewseparator="$n()"
+}%%TMPL:END%
+
+<literal>
+%TMPL:P{"qm::notify"}%
+</literal>

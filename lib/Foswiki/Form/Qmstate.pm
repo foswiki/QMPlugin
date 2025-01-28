@@ -1,6 +1,6 @@
 # Plugin for Foswiki - The Free and Open Source Wiki, https://foswiki.org/
 #
-# QMPlugin is Copyright (C) 2019-2021 Michael Daum http://michaeldaumconsulting.com
+# QMPlugin is Copyright (C) 2019-2025 Michael Daum http://michaeldaumconsulting.com
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -49,10 +49,10 @@ sub isMultiValued { return 0; }
 sub isValueMapped { return 1; }
 
 sub getDefaultValue {
-  my $this = shift;
+  my ($this, $web, $topic) = @_;
 
-  my $id = $this->{default};
-  my $net = $this->getNet;
+  my $id = $this->{default} // '';
+  my $net = $this->getNet($web, $topic);
   return $id unless defined $net;
 
   my $node = $id?$net->getNode($id):$net->getDefaultNode;
@@ -73,21 +73,30 @@ sub param {
 }
 
 sub getOptions {
-  my $this = shift;
+  my ($this, $web, $topic) = @_;
 
-  $this->getValueMap();
-  return $this->getEditOptions($this->{_value}) if defined $this->{_value};
-  return $this->getDisplayOptions();
+  $this->getValueMap($web, $topic);
+  return $this->getEditOptions($this->{_value}, $web, $topic) if defined $this->{_value};
+  return $this->getDisplayOptions($web, $topic);
 }
 
 sub getValueMap {
-  my $this = shift;
+  my ($this, $web, $topic) = @_;
 
-  unless (defined $this->{valueMap}) {
-    my $net = $this->getNet;
+  unless (defined $this->{valueMap}) { # SMELL: valueMap is different per web.topic
+    my $state = $this->getState($web, $topic);
+    return unless $state;
+    my $net = $state->getNet($web, $topic);
+
     if ($net) {
       foreach my $node ($net->getNodes()) {
-        $this->{valueMap}{$node->prop("id")} = $this->getState->expandValue($node->prop("title"));
+
+        my $id = $node->prop("id");
+        my $title = $state->expandValue($node->prop("title"));
+        my $message = $state->expandValue($node->prop("message"));
+
+        $this->{valueMap}{$id} = $title;
+        $this->{_descriptions}{$id} = $message;
       }
     }
   }
@@ -96,12 +105,12 @@ sub getValueMap {
 }
 
 sub getDisplayOptions {
-  my $this = shift;
+  my ($this, $web, $topic) = @_;
 
   unless (defined $this->{_displayOptions}) {
     $this->{_displayOptions} = []; 
 
-    my $net = $this->getNet;
+    my $net = $this->getNet($web, $topic);
     if ($net) {
       @{$this->{_displayOptions}} = map {$_->prop("id")} $net->getSortedNodes();
     }
@@ -111,9 +120,9 @@ sub getDisplayOptions {
 }
 
 sub getEditOptions {
-  my ($this, $value) = @_;
+  my ($this, $value, $web, $topic) = @_;
 
-  $value = $this->getDefaultValue() unless defined $value && $value ne "";
+  $value = $this->getDefaultValue($web, $topic) unless defined $value && $value ne "";
 
   unless (defined $this->{_editOptions}) {
     my @nodes = ();
@@ -122,19 +131,27 @@ sub getEditOptions {
     if ($net) {
       my $node = $net->getNode($value);
 
+
+      my %seen = ();
       if ($node) {
         push @nodes, $node;
+        $seen{$node->prop("id")} = 1;
 
         my $user = $this->getCore->getSelf();
 
         foreach my $edge ($node->getOutgoingEdges) {
+          next if $edge->prop("action") eq "_hidden_";
           next unless $edge->isEnabled($user);
 
-          push @nodes, $net->getNode($edge->prop("to"));
+          my $toNode = $net->getNode($edge->prop("to"));
+          next if $seen{$toNode->prop("id")};
+
+          $seen{$toNode->prop("id")} = 1;
+          push @nodes, $toNode;
         }
       }
     }
-    @{$this->{_editOptions}} = map {$_->prop("id")} sort {$a->index <=> $b->index} @nodes;
+    @{$this->{_editOptions}} = map {$_->prop("id")} sort {$a->{_index} <=> $b->{_index}} @nodes;
   }
 
   return $this->{_editOptions};
@@ -146,15 +163,22 @@ sub getCore {
   return Foswiki::Plugins::QMPlugin::getCore();
 }
 
+#use Carp qw(cluck);
 sub getState {
   my ($this, $web, $topic) = @_;
 
+  # SMELL: the current formfield isn't necessarily part of the base topic
   my $session = $Foswiki::Plugins::SESSION;
+
+  #cluck("called getState without web.topic") unless defined $web && defined $topic;
+
   $web //= $session->{webName};
   $topic //= $session->{topicName};
 
+
   my $state = $this->getCore->getState($web, $topic);
 
+  return unless $state;
   my $workflow = $this->param("workflow");
   $state->setWorkflow($workflow) if $workflow;
 
@@ -164,8 +188,6 @@ sub getState {
 sub getNet {
   my $this = shift;
 
-  $this->{_net} //= $this->getState->getNet();
-
   unless (defined $this->{_net}) {
     my $session = $Foswiki::Plugins::SESSION;
     my $web = $session->{webName};
@@ -174,7 +196,7 @@ sub getNet {
 
     ($web, $topic) = Foswiki::Func::normalizeWebTopicName($web, $workflow || $topic);
 
-    $this->{_net} = Foswiki::Plugins::QMPlugin::Net->new($web, $topic);
+    $this->{_net} = $this->getCore->getNet($web, $topic);
   }
 
   return $this->{_net};
@@ -192,9 +214,12 @@ sub cssClasses {
 }
 
 sub renderForDisplay {
-  my ($this, $format, $value, $attrs) = @_;
+  my ($this, $format, $value, $attrs, $meta) = @_;
 
-  my $displayValue = $this->getDisplayValue($value);
+  my $web = $meta ? $meta->web : undef;
+  my $topic = $meta ? $meta->topic : undef;
+
+  my $displayValue = $this->getDisplayValue($value, $web, $topic);
   $format =~ s/\$value\(display\)/$displayValue/g;
   $format =~ s/\$value/$value/g;
 
@@ -202,41 +227,81 @@ sub renderForDisplay {
 }
 
 sub getDisplayValue {
-  my ($this, $value) = @_;
+  my ($this, $value, $web, $topic) = @_;
 
-  return $value unless $this->isValueMapped();
+  my $state = $this->getState($web, $topic);
+  return $value unless $state;
+  return $state->translate($value) unless $this->isValueMapped();
 
-  $this->getValueMap();
-  $this->getDisplayOptions();
+  $this->getValueMap($web, $topic);
+  $this->getDisplayOptions($web, $topic);
   my @vals = ();
   foreach my $val (split(/\s*,\s*/, $value)) {
     if (defined($this->{valueMap}{$val})) {
-      push @vals, $this->{valueMap}{$val};
+      push @vals, $state->translate($this->{valueMap}{$val});
     } else {
-      push @vals, $val;
+      push @vals, $state->translate($val);
     }
   }
+
   return join(", ", @vals);
 }
 
 sub renderForEdit {
   my ($this, $meta, $value) = @_;
 
-  $this->getValueMap();
-  unless (defined $this->{valueMap}{$value}) {
-    print STDERR "WARNING: qmstate '$value' not defined in workflow, falling back to default value\n";
-    $value = $this->getDefaultValue;
-  }
+  my $web = $meta->web;
+  my $topic = $meta->topic;
 
+  Foswiki::Func::pushTopicContext($web, $topic);
+
+  $this->{_editOptions} = undef;
+  $this->{_displayOptions} = undef;
+  $this->{_net} = undef;
+
+  $this->getValueMap($web, $topic);
+  unless (defined $value && defined $this->{valueMap}{$value}) {
+    print STDERR "WARNING: qmstate '$value' not defined in workflow, falling back to default value\n";
+    $value = $this->getDefaultValue($web, $topic);
+  }
   $this->{_value} = $value;
 
-  my ($extra, $html) = $this->SUPER::renderForEdit($meta, $value);
+  my $format = '<div><label title="$description" class="jqUITooltip" data-theme="$theme" data-arrow="true" data-track="false" data-position="$tooltipPosition" data-delay="250"><input type="radio" name="$name" value="$value" class="$class" $selected />$label</label></div>';
+  my @result = ();
+  my $state = $this->getState($web, $topic);
+  return $this->SUPER::renderForEdit($meta, $value) unless $state;
+
+  foreach my $item ( @{ $this->getOptions($web, $topic) } ) {
+      my $line = $format;
+
+      my $selected = ($item eq $value ? 'checked="checked"' : '');
+      my $label = $state->translate($this->{valueMap}{$item} // $item);
+      my $description = $this->{_descriptions}{$item} // '';
+      $description = $state->expandValue($description) if $description =~ /%/;
+
+      $line =~ s/\$value\b/$item/g;
+      $line =~ s/\$description\b/$description/g;
+      $line =~ s/\$label\b/$label/g;
+      $line =~ s/\$selected\b/$selected/g;
+
+      push @result, $line;
+  }
+  push @result, "<input type='hidden' name='$this->{name}' value='$value' />";
+  my $html = "<div class='foswikiRadioButtonGroup' style='display:inline-block;column-count:$this->{size}'>" . join("\n", @result) . "</div>";
+
+  my $class = $this->cssClasses("foswikiRadioButton");
+  my $theme = $this->param("theme") // "info";
+  my $tooltipPosition = $this->param("tooltipPosition") // "left";
+
+  $html =~ s/\$class\b/$class/g;
+  $html =~ s/\$name\b/$this->{name}/g;
+  $html =~ s/\$theme\b/$theme/g;
+  $html =~ s/\$tooltipPosition\b/$tooltipPosition/g;
+
   undef $this->{_value};
 
-  # add current value hidden in case the state will not change
-  $html .= CGI::hidden(-name => $this->{name}, -default => $value);
-
-  return ($extra, $html);
+  Foswiki::Func::popTopicContext();
+  return ('', $html);
 }
 
 sub _encode {

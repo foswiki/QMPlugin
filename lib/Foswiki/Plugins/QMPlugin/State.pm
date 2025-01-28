@@ -1,6 +1,6 @@
 # Plugin for Foswiki - The Free and Open Source Wiki, https://foswiki.org/
 #
-# QMPlugin is Copyright (C) 2019-2021 Michael Daum http://michaeldaumconsulting.com
+# QMPlugin is Copyright (C) 2019-2025 Michael Daum http://michaeldaumconsulting.com
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -36,7 +36,10 @@ use Foswiki::Plugins ();
 use Foswiki::Plugins::QMPlugin ();
 use Foswiki::Plugins::QMPlugin::Command ();
 use Foswiki::Plugins::QMPlugin::Review ();
+use Foswiki::Plugins::QMPlugin::Node ();
+use Foswiki::Plugins::MultiLingualPlugin ();
 use Assert;
+use JSON ();
 use Error qw(:try);
 
 =begin TML
@@ -68,6 +71,7 @@ use constant PROPS => qw(
   previousNode 
   origin
   workflow
+  approvalRev
 );
 
 =begin TML
@@ -95,6 +99,7 @@ sub new {
   return $this->init($web, $topic, $rev, $meta);
 }
 
+
 =begin TML
 
 ---++ ObjectMethod init($web, $topic, $rev, $meta)
@@ -108,32 +113,34 @@ a different topic or revision to it.
 sub init {
   my ($this, $web, $topic, $rev, $meta) = @_;
 
+  ($meta) = Foswiki::Func::readTopic($web, $topic, $rev) unless defined $meta;
+
   $this->{_web} = $web;
   $this->{_topic} = $topic;
   $this->{_meta} = $meta;
   $this->{_reviewCounter} = 0;
 
-  ($this->{_meta}) = Foswiki::Func::readTopic($web, $topic, $rev)
-    unless defined $this->{_meta};
+  $this->{_rev} = $meta->getLoadedRev() || 0;
 
-  $this->{_rev} = $this->{_meta}->getLoadedRev() || 1;
+  _writeDebug("called init $web.$topic, rev=$this->{_rev} for state $this");
 
-  _writeDebug("init $web.$topic, rev=$this->{_rev} for state $this");
+  my $qmData = $meta->get("QMSTATE");
 
-  my $qmData = $this->{_meta}->get("QMSTATE");
-
-  unless ($qmData) {
-    _writeDebug("no qmdata found");
+  if ($qmData) {
+    #_writeDebug("qmdata found"); 
+  } else {
+    #_writeDebug("no qmdata found");
 
     if (Foswiki::Func::getContext()->{WorkflowPluginEnabled}) {
       _writeDebug("WorkflowPlugin is still enabled ... not migrating data");
     } else {
       # try to init from legacy WORKFLOW data
-      my $legacyData = $this->{_meta}->get("WORKFLOW");
+      my $legacyData = $meta->get("WORKFLOW");
 
       if ($legacyData) {
-        my $legacyHistory = $this->{_meta}->get("WORKFLOWHISTORY", $legacyData->{"LASTVERSION_".$legacyData->{name}});
+        my $legacyHistory = $meta->get("WORKFLOWHISTORY", $legacyData->{"LASTVERSION_".$legacyData->{name}});
 
+        _writeDebug("found legacy data");
         _writeDebug("init'ing from legacy data: id=$legacyData->{name}");
         $qmData = {
           id => $legacyData->{name},
@@ -147,7 +154,7 @@ sub init {
         $this->{_migrateFromLegacy} = 1;
 
       } else {
-        #_writeDebug("no legacy found");
+        _writeDebug("no legacy found");
       }
     }
   }
@@ -155,36 +162,85 @@ sub init {
   $qmData ||= {};
 
   # init from topicinfo
-  my $info = $this->{_meta}->getRevisionInfo();
+  my $info = $meta->getRevisionInfo();
   $qmData->{author} //= $info->{author};
   $qmData->{date} //= $info->{date};
-  $qmData->{changed} //= 0;
-
-  # init from qmstate and qmworkflow formfields
-  my ($fieldDef, $field) = $this->getCore->getQMStateFormfield($this->{_meta});
-  if ($fieldDef) {
-    my $workflow = $fieldDef->param("workflow");
-    $qmData->{workflow} = $workflow if defined $workflow && $workflow ne '';
-    $qmData->{id} = $field->{value} if defined $field->{value} && $field->{value} ne '';
-  }
-  my $workflowField = $this->getCore->getQMWorkflowFormfield($this->{_meta});
-  $qmData->{workflow} = $workflowField->{value} if defined $workflowField;
 
   while (my ($key, $val) = each %$qmData) {
     next if $key =~ /^_/;
     #_writeDebug("key=$key, val=$val");
     $this->{$key} = $val;
   }
+  
+  # init from qmstate and qmworkflow formfields
+  my $workflow;
+  my $workflowField = $this->getCore->getQMWorkflowFormfield($meta);
+  $workflow = $workflowField->{value} if defined $workflowField;
 
-  $this->setWorkflow();
+  my ($fieldDef, $field) = $this->getCore->getQMStateFormfield($meta);
+  $workflow = $fieldDef->param("workflow") if $fieldDef && !$workflow;
+
+  $this->setWorkflow($workflow);
 
   $this->{_reviews} = [];
-  foreach my $reviewData ($this->{_meta}->find("QMREVIEW")) {
+  foreach my $reviewData ($meta->find("QMREVIEW")) {
     push @{$this->{_reviews}}, Foswiki::Plugins::QMPlugin::Review->new($this, $reviewData);
-  };
+  }
 
   # SMELL: no legacy comments are preserved
-  
+  my $net = $this->getNet();
+  my $defaultNode = $net ? $net->getDefaultNode : undef;
+  $this->{id} ||= $defaultNode->prop("id") if defined $defaultNode;
+
+  # traverse the edge when the formfield changed
+
+  if ($net) {
+
+    if (defined($field) && defined($field->{value}) && $field->{value} ne '' && (!defined($qmData->{id}) || $field->{value} ne $qmData->{id})) {
+
+      # traverse to state by field value 
+      my $from = $qmData->{id} // '_unknown_'; 
+      my $to = $field->{value};
+      my $edge = $net->getEdge($from, undef, $to);
+      my $user = $this->getCore->getSelf();
+      
+      if ($edge && $edge->isEnabled($user)) {
+        _writeDebug("edge ".$edge->prop("id")." is enabled for ".$user->prop("displayName"));
+      } else {
+        _writeDebug("WARNING: edge $from -> $to not enabled or allowed while saving topic");
+        $edge = undef;
+      }
+
+      #_writeDebug("field value=$field->{value}") if defined $field;
+      #_writeDebug("qmdata id=$from");
+
+      if ($edge) {
+        _writeDebug("need to perform a transition from '$from' to '$to' using action '".$edge->prop("action")."'");
+        $this->traverse($edge, "_init_");
+        $this->hasChanged(1);
+      } else {
+        _writeDebug("WARNING: need to resync formfield from '$to' to '$from' in topic $this->{_web}.$this->{_topic}");
+        $field->{value} = $from;
+        $this->hasChanged(1);
+      }
+    } elsif (!defined($qmData->{id}) || $qmData->{id} eq '_unknown_') {
+
+      # travese the initial edge to the default node
+
+      my $from = '_unknown_';
+      my $to = $net->getDefaultNode();
+      my $edge = $net->getEdge($from, undef, $to);
+
+      if ($edge) {
+        _writeDebug("performing initial transition");
+        $this->traverse($edge, "_init_");
+        $this->hasChanged(1);
+      } else {
+        #_writeWarning("woops, cannot find an initial edge");
+      }
+    }
+  }
+
   return $this;
 }
 
@@ -200,12 +256,11 @@ sub finish {
   my $this = shift;
 
   #_writeDebug("finishing state $this");
-
-  $this->{_net}->finish() if defined $this->{_net};
-
   foreach my $review ($this->getReviews()) {
     $review->finish;
   }
+
+  # the net isnt finished here, see core::finish
 
   undef $this->{_web};
   undef $this->{_topic};
@@ -218,6 +273,7 @@ sub finish {
   undef $this->{_net};
   undef $this->{_reviews};
   undef $this->{_lastApproved};
+  undef $this->{_json};
 }
 
 =begin TML
@@ -235,27 +291,33 @@ sub setWorkflow {
 
   my $oldWorkflow = $this->prop("workflow") // '';
   $workflow //= $oldWorkflow;
-
   return unless $workflow;
-
-  _writeDebug("called setWorkflow($workflow)");
 
   my ($web, $topic) = Foswiki::Func::normalizeWebTopicName($this->{_web}, $workflow);
   $web =~ s/\//./g;
 
-  $this->{_gotChange} = 1 if $oldWorkflow ne "$web.$topic";
+  $workflow = "$web.$topic";
+  my ($package, $file, $line) = caller;
+  _writeDebug("called setWorkflow() for $this->{_web}.$this->{_topic} via $package,$line");
 
+  $this->hasChanged(1) if $oldWorkflow ne $workflow;
 
-  if ($oldWorkflow ne "$web.$topic" || !$this->{_net}) {
-    $this->{workflow} = "$web.$topic";
+  if ($oldWorkflow ne $workflow || !$this->{_net}) {
+    $this->{workflow} = $workflow;
 
-    #_writeDebug("reloading net");
-    $this->{_net}->finish() if defined $this->{_net};
-    $this->{_net} = Foswiki::Plugins::QMPlugin::Net->new($web, $topic, $this);
+    _writeDebug("... changing workflow to $workflow");
+    $this->{_net} = $this->getCore->getNet($web, $topic, $this);
 
-    print STDERR "WARNING: cannot create a net for workflow $web.$topic\n" unless defined $this->{_net};
-
-    $this->{id} ||= $this->{_net}->getDefaultNode->prop("id") if defined $this->{_net};
+    if (defined $this->{_net}) {
+      my $node = $this->getCurrentNode();
+      if (defined $node && $node->prop("id") eq '_unknown_') {
+        _writeDebug("current node is unknown.");
+      }
+    } else {
+      #print STDERR "WARNING: cannot create a net for workflow $workflow\n";
+    }
+  } else {
+    _writeDebug("... no change");
   }
 
   return $this->{_net};
@@ -293,8 +355,8 @@ sub props {
   my %props = ();
   $props{$_} = 1 foreach grep {!/^_/} (keys %$this, PROPS);
 
-  my @result = sort keys %props;
-  return @result;
+  my @props = sort keys %props;
+  return wantarray ? @props : scalar(@props);
 }
 
 =begin TML
@@ -314,7 +376,7 @@ sub prop {
     my $oldVal = $this->{$key};
     if (!defined($oldVal) || $oldVal ne $val) {
       $this->{$key} = $val;
-      $this->{_gotChange} = 1;
+      $this->hasChanged(1);
     }
   }
 
@@ -337,7 +399,7 @@ sub deleteProp {
 
   my $val = $this->{$key};
   undef $this->{$key};
-  $this->{_gotChange} = 1 if defined $val;
+  $this->hasChanged(1) if defined $val;
 
   return $val;
 }
@@ -356,12 +418,20 @@ sub expandValue {
   return "" unless defined $val;
 
   if ($val && $val =~ /%/) {
-    my $origVal = $val;
-    Foswiki::Func::pushTopicContext($this->{_web}, $this->{_topic});
-    $val = Foswiki::Func::expandCommonVariables($val, $this->{_topic}, $this->{_web}, $this->{_meta});
-    Foswiki::Func::popTopicContext();
 
-    #_writeDebug("expandVal($origVal) = $val");
+    # push context for both: 
+    # (1) the workflow topic to get its preference settings and #
+    # (2) the actual topic to happen the evaluation on
+
+    my ($workflowWeb, $workflowTopic) = Foswiki::Func::normalizeWebTopicName($this->{_web}, $this->{workflow});
+    Foswiki::Func::pushTopicContext($workflowWeb, $workflowTopic);
+    Foswiki::Func::pushTopicContext($this->{_web}, $this->{_topic});
+
+    my $meta = $this->getMeta();
+    $val = $meta->expandMacros($val);
+
+    Foswiki::Func::popTopicContext();
+    Foswiki::Func::popTopicContext();
   }
 
   return $val;
@@ -372,7 +442,6 @@ sub expandValue {
 ---++ ObjectMethod save(%params) -> $this
 
 save this state into the assigned topic/ params are forwared to Foswiki::Meta::save().
-
 
 =cut
 
@@ -385,21 +454,30 @@ sub save {
     return;
   }
 
+  _writeDebug("called save for $this->{_web}.$this->{_topic}");
+
+  # make sure the topic is saved "in its own context"
+  Foswiki::Func::pushTopicContext($this->{_web}, $this->{_topic});
+
   $this->{_saveInProgress} = 1;
   $this->processCommands("beforeSave");
 
-  $args{forcenewrevision} = 1 if $this->{_migrateFromLegacy} || $this->prop("changed") ne $this->hasChanged();
+  $args{forcenewrevision} = 1 if $this->{_migrateFromLegacy} || ($this->prop("changed") // '' ne $this->hasChanged());
   undef $this->{_migrateFromLegacy};
 
+  $this->updateCustomProperties();
   $this->updateMeta();
   $this->setACLs();
 
-  _writeDebug("save $this->{_web}.$this->{_topic}");
+  $args{dontlog} = 1; # a state change is logged manually using the "traverse" action
+  $args{minor} = 1; # a state change is a minor change, not a content change
 
-  $this->getCore->saveMeta($this->{_meta}, %args);
+  $this->getCore->saveMeta($this->getMeta, %args);
   $this->processCommands("afterSave");
 
   $this->{_saveInProgress} = 0;
+
+  Foswiki::Func::popTopicContext();
 
   return $this;
 }
@@ -415,24 +493,47 @@ save this state into the assigned meta object, don't save it to the store actual
 sub updateMeta {
   my $this = shift;
 
-  _writeDebug("updateMeta ");
+  _writeDebug("called updateMeta");
 
   my $hasChanged = $this->hasChanged();
-  my $oldData = $this->{_meta}->get("QMSTATE");
+  my $meta = $this->getMeta();
+  my $oldData = $meta->get("QMSTATE");
+  my $node = $this->getCurrentNode();
 
   my $net = $this->getNet();
   if (defined $net && defined $this->{workflow} && $this->{workflow} ne '') {
-    _writeDebug("setting state");
+    _writeDebug("... setting state");
 
     # set props before saving
     $this->{date} = time;
     $this->{author} = Foswiki::Func::getWikiName();
-    $this->{id} ||= $net->getDefaultNode->prop("id");
+    my $defaultNode = $net->getDefaultNode;
+    $this->{id} ||= $defaultNode->prop("id") if $defaultNode;
     $this->prop("changed", $this->hasChanged());
+
+    # sync qmstate formfield
+    my $qmStateField = $this->getCore->getQMStateFormfield($meta);
+    if ($qmStateField) {
+      _writeDebug("... found qmstate field $qmStateField->{name}, setting value from $qmStateField->{value} to $this->{id}");
+      $qmStateField->{value} = $this->{id};
+    } else {
+      my $fieldDef = $this->getCore->getFormfieldDefinition($meta, "qmstate");
+      if ($fieldDef) {
+
+        # adding field not present still required
+        _writeDebug("... adding a field $fieldDef->{name} missing in the data");
+        $meta->putKeyed("FIELD", {
+          name => $fieldDef->{name},
+          title => $fieldDef->{title},
+          value => $this->{id},
+        });
+      }
+    }
 
     # test for changes
     my %data = ();
     foreach my $key ($this->props) {
+      next if $key eq 'attributes';
       my $val = $this->prop($key);
       next unless defined $val && $val ne "";
       $val = $this->expandValue($val);
@@ -445,51 +546,63 @@ sub updateMeta {
     }
 
     if ($hasChanged) {
-      _writeDebug("... qmstate change");
-      $this->{_meta}->remove("QMSTATE");
-      $this->{_meta}->remove("QMREVIEW");
+      _writeDebug("... qmstate changed");
+      $meta->remove("QMSTATE");
+      $meta->remove("QMREVIEW");
 
       unless (Foswiki::Func::getContext()->{WorkflowPluginEnabled}) {
-        $this->{_meta}->remove("WORKFLOW");
-        $this->{_meta}->remove("WORKFLOWHISTORY");
+        $meta->remove("WORKFLOW");
+        $meta->remove("WORKFLOWHISTORY");
+      }
+
+      # cache the revision being approved
+      if ($this->isApproved) {
+        $data{approvalRev} = $this->getRevision() + 1; # SMELL: soon to be saved
+      } else {
+        $data{approvalRev} //= ($this->getLastApproved ? $this->getLastApproved->getRevision() : '');
       }
 
       # store QMSTATE
-      $this->{_meta}->put("QMSTATE", \%data);
+      $meta->put("QMSTATE", \%data);
 
       # store QMREVIEWs
       foreach my $review ($this->getReviews()) {
-        $review->store($this->{_meta});
+        $review->store($meta);
       }
 
-      # sync qmstate formfield
-      my $qmStateField = $this->getCore->getQMStateFormfield($this->getMeta());
-      if ($qmStateField) {
-        _writeDebug("... found qmstate field $qmStateField->{name}, setting value from $qmStateField->{value} to $this->{id}");
-        $qmStateField->{value} = $this->{id};
-      }
     } else {
       _writeDebug("... qmstate did not change");
     }
 
   } else {
+
+    # deleting the state as well as all managed properties
+
     _writeDebug("deleting state"); 
 
-    $this->{_meta}->remove("QMSTATE");
-    $this->{_meta}->remove("QMREVIEW");
+    $meta->remove("QMSTATE");
+    $meta->remove("QMREVIEW");
+    $meta->remove("PREFERENCE", "ALLOWTOPICAPPROVE");
+
+    # TODO: remove settings if managed ... not by default for non-qm topics
+#    $meta->remove("PREFERENCE", "VIEW_TEMPLATE");
+#    $meta->remove("PREFERENCE", "EDIT_TEMPLATE");
+#    $meta->remove("PREFERENCE", "PRINT_TEMPLATE");
 
     unless (Foswiki::Func::getContext()->{WorkflowPluginEnabled}) {
-      $this->{_meta}->remove("WORKFLOW");
-      $this->{_meta}->remove("WORKFLOWHISTORY");
+      $meta->remove("WORKFLOW");
+      $meta->remove("WORKFLOWHISTORY");
     }
   }
+
+  _writeDebug("... done updateMeta");
 
   return $this;
 }
 
 =begin TML
 
----++ ObjectMethod change($action, $to, $comment, $user) -> $boolean
+---++ ObjectMethod change($action, $to, $comment, $user, $keepReviews) -> $boolean
 
 change this state by performing a certain action, providing an optional comment;
 returns true if the action was successfull and the state has been transitioned along the lines
@@ -497,12 +610,17 @@ of the net. Otherwise an error is thrown. Note that only the properties of this 
 are changed; it is _not_ stored into the current topic; you must call the =save()= method
 to do so.
 
+The =keepReviews= boolean allows to keep review objects from a previous transition.
+Previous review objects will be filtered out not matching the current action.
+
 =cut
 
 sub change {
-  my ($this, $action, $to, $comment, $user) = @_;
+  my ($this, $action, $to, $comment, $user, $keepReviews) = @_;
 
-  _writeDebug("change state $action, $to");
+  _writeDebug("called change state id=$this->{id}, action=".($action//'undef').", to=".($to//'undef'));
+
+  _writeDebug("... keeping previous reviews") if $keepReviews;
 
   my $node = $this->getCurrentNode();
   throw Error::Simple("Woops, current node is invalid.") unless defined $node;
@@ -511,10 +629,13 @@ sub change {
   my $wikiName = $user->prop("wikiName");
 
   foreach my $edge ($this->getPossibleEdges()) {
-    next unless $action eq $edge->prop("action") && $to eq $edge->prop("to");
+    #_writeDebug("... edge=".$edge->prop("id").", action='".$edge->prop("action")."'");
+
+    next if defined($action) && $action ne $edge->prop("action");
+    next if defined($to) && $to ne $edge->prop("to");
 
     # check review progress
-    $this->filterReviews($action);
+    $this->filterReviews($action) unless $keepReviews;
 
     # check reviewer
     throw Error::Simple("$wikiName already reviewed current state.")
@@ -525,26 +646,36 @@ sub change {
         "action" => $action,
         "to" => $to,
         "author" => $wikiName,
-        "comment" => $comment,
+        "comment" => $comment//'',
       }
     );
 
-    $this->{_gotChange} = 1;
+    $this->hasChanged(1);
 
     # check signoff
     my $minSignOff = $edge->getSignOff();
-    my $signOff = $this->getCurrentSignOff($edge);
+    my $doTraversal = 0;
 
-    # set signoff if required
-    $review->prop("signOff", $signOff) if $minSignOff;
+    if ($edge->isRelativeSignOff) {
+      my $signOff = $this->getCurrentSignOff($edge);
 
-    _writeDebug("minSignOff=$minSignOff, signOff=$signOff");
+      # set signoff if required
+      $review->prop("signOff", $signOff) if $minSignOff;
+
+      #_writeDebug("minSignOff=$minSignOff, signOff=$signOff");
+      $doTraversal = 1 if $signOff >= $minSignOff;
+    } else {
+      my $numReviews = $this->getNumReviews($edge);
+      #_writeDebug("minSignOff=$minSignOff, numReviews=$numReviews");
+      $doTraversal = 1 if $numReviews >= $minSignOff;
+    }
 
     # traverse edge if signoff is reached
-    if ($signOff >= $minSignOff) {
-      $this->traverse($edge);
+    if ($doTraversal) {
+      _writeDebug("... do traversal");
+      $this->traverse($edge, $comment);
     } else {
-      _writeDebug("not yet switching to next node");
+      _writeDebug("... not yet traversing edge");
       $this->prop("reviewAction", $action);
     }
 
@@ -595,14 +726,14 @@ sub filterReviews {
   $action ||= $this->prop("reviewAction") || '';
   $id ||= $this->getCurrentNode->prop("id");
 
-  _writeDebug("filterReviews not matching id=$id, action=$action");
+  #_writeDebug("filterReviews not matching id=$id, action=$action");
 
   my $hasChanged = 0;
   my @reviews = ();
 
   foreach my $review (@{$this->{_reviews}}) {
 
-    if ($review->prop("from") eq $id && $review->prop("action") eq $action) {
+    if (($review->prop("from") // '') eq $id && ($review->prop("action") // '') eq $action) {
       #_writeDebug("keeping review ".$review->stringify);
       push @reviews, $review;
     } else {
@@ -621,7 +752,7 @@ sub filterReviews {
 
 =begin TML
 
----++ ObjectMethod traverse($edge) 
+---++ ObjectMethod traverse($edge, $comment) 
 
 change the current state by traversing the given edge;
 note that this only changes the current location within the net; the changed data is _not_ stored
@@ -630,25 +761,97 @@ into the current state.
 =cut
 
 sub traverse {
-  my ($this, $edge) = @_;
+  my ($this, $edge, $comment) = @_;
 
   my $fromNode = $edge->fromNode();
   my $toNode = $edge->toNode();
   my $command = $edge->prop("command");
 
-  _writeDebug("traverse from ".$fromNode->prop("id")." to ".$toNode->prop("id")." via action ".$edge->prop("action").($command?" executing $command":""));
+  _writeDebug("called traverse from ".$fromNode->prop("id")." to ".$toNode->prop("id")." via action ".$edge->prop("action").($comment?" comment '$comment'":"").($command?" executing $command":""));
 
   $this->{previousNode} = $fromNode->prop("id"); 
   $this->{previousAction} = $edge->prop("action");
   $this->{id} = $toNode->prop("id");
 
+  # compute properties
+  $this->updateCustomProperties($toNode);
+
   # execute all commands
-  $edge->execute();
+  $edge->execute($this);
 
   # queue internal notify command about new state; will be processed after save
   $this->queueCommand($edge, "notify");
+
+  $this->log($edge, $comment);
 }
 
+=begin TML
+
+---++ ObjectMethod updateCustomProperties()
+
+recompute all custom node properties and store them into the state
+
+=cut
+
+sub updateCustomProperties {
+  my ($this, $node) = @_;
+
+  $node ||= $this->getCurrentNode();
+  return unless $node;
+
+  my %knownNodeProps = map {$_ => 1} Foswiki::Plugins::QMPlugin::Node::PROPS;
+  my $stateRegex = join("|", $this->props);
+
+  foreach my $key ($node->props) {
+    next if $knownNodeProps{$key} || $key =~ /^_/;
+
+    my $val = $node->prop($key);
+
+    if (defined($val) && $val ne "") {
+      $val =~ s/\$($stateRegex)\b/$this->expandValue($this->prop($1))/ge;
+      $val = $this->expandValue($val);
+    }
+
+    if (defined($val) && $val ne "") {
+      $this->prop($key, $val);
+    } else {
+      $this->deleteProp($key);
+    }
+  }
+}
+
+=begin TML
+
+---++ ObjectMethod log($edge, $comment)
+
+write the event of traversing the given edge to the wki logs
+with an optional comment
+
+=cut
+
+sub log {
+  my ($this, $edge, $comment) = @_;
+
+  # don't log hidden edges
+  return if $edge->prop("action") eq '_hidden_';
+
+  my $session = $Foswiki::Plugins::SESSION;
+  my $message = 
+    "from=" . $edge->fromNode->prop("id") . 
+    ", action=" . $edge->prop("action") . 
+    ", to=" . $edge->toNode->prop("id") .
+    ", comment=".($comment//'') .
+    ", workflow=".($this->{workflow}//'');
+
+  #print STDERR "QMSTATE: log $message\n";
+
+  $session->logger->log({
+    level => 'info',
+    action => 'traverse',
+    webTopic => "$this->{_web}.$this->{_topic}",
+    extra => $message,
+  });
+}
 
 =begin TML
 
@@ -665,7 +868,8 @@ sub queueCommand {
   return unless $id;
 
   foreach my $handler ($this->getCore->getCommandHandlers($id)) {
-    push @{$this->{_queue}{$handler->{type}}}, Foswiki::Plugins::QMPlugin::Command->new($handler, $edge, $params);
+    my $command = Foswiki::Plugins::QMPlugin::Command->new($handler, $edge, $params);
+    push @{$this->{_queue}{$handler->{type}}}, $command if $command;
   }
 }
 
@@ -685,18 +889,20 @@ sub processCommands {
   _writeDebug("processCommands($type)");
 
   foreach my $command (@{$this->{_queue}{$type}}) {
-    $command->execute();
+    $command->execute($this);
   }
 
   # clear queue
   $this->{_queue}{$type} = ();
+
+  _writeDebug("... done processCommands($type)");
 }
 
 =begin TML
 
 ---++ ObjectMethod sendNotification($template) -> $errors
 
-send email notifications for the current edge transition. this is called when a transition
+sends a notifications for the current edge transition. This is called when a transition
 has actually happened, but may also be called later on to re-send the email notification.
 this method is always called when =save()= is performed; the method returns a list of errors
 that may have happened as part of the mail delivery process. See also =Foswiki::Func::sendEmail=.
@@ -715,30 +921,82 @@ sub sendNotification {
   _writeDebug("... woops, current edge not found") unless defined $edge;
   return unless defined $edge;
 
-  my $emails = $edge->getEmails();
-  if ($emails) {
-    _writeDebug("... emails=$emails");
+  my @emails = $edge->getEmails();
+  my $doNotifySelf = Foswiki::Func::getPreferencesFlag("QMPLUGIN_NOTIFYSELF");
+  unless ($doNotifySelf) {
+    my %myEmails = map {$_ => 1} Foswiki::Func::wikinameToEmails();
+    @emails = grep {!$myEmails{$_}} @emails;
+  }
+
+  if (@emails) {
+    _writeDebug("... emails=@emails");
   } else {
     _writeDebug("... no emails found in edge: ".$edge->stringify) if TRACE;
     return;
   }
 
-  $template ||= "qmpluginnotify";
+  $template ||= $this->getNotificationTemplate($edge);
+  _writeDebug("template=$template");
   Foswiki::Func::readTemplate($template);
 
   my $id = $this->expandValue($edge->prop("to"));
-  my $tmpl = Foswiki::Func::expandTemplate("qm::notify::$id") || Foswiki::Func::expandTemplate("qm::notify");
+  my (undef, $workflow) = Foswiki::Func::normalizeWebTopicName($this->{_web}, $this->prop("workflow"));
+
+  _writeDebug("workflow=$workflow, id='$id'");
+
+  my $tmpl;
+  foreach my $key ("qm::notify::".$workflow."::".$id, "qm::notify::".$id, "qm::notify") {
+    $tmpl = Foswiki::Func::expandTemplate($key);
+    if ($tmpl) {
+      _writeDebug("... found tmpl for $key");
+      last;
+    }
+  }
 
   _writeDebug("...woops, empty template") unless $tmpl;
   return unless $tmpl;
 
+  #_writeDebug("... tmpl=$tmpl");
+
+  # set preference values used in email template
+  # - qm_emails
+  # - qm_fromNode
+  # - qm_fromNodeTitle
+  # - qm_action
+  # - qm_actionTitle
+  # - qm_toNode
+  # - qm_toNodeTitle
+  # - qm_author
+  # - qm_authorTitle
+  my $author = $this->getCore->getUser($this->prop("author"));
+  Foswiki::Func::setPreferencesValue("qm_emails", join(", ", @emails));
+  Foswiki::Func::setPreferencesValue("qm_fromNode", $edge->fromNode->prop("id"));
+  Foswiki::Func::setPreferencesValue("qm_fromNodeTitle", $edge->fromNode->prop("title"));
+  Foswiki::Func::setPreferencesValue("qm_action", $edge->prop("id"));
+  Foswiki::Func::setPreferencesValue("qm_actionTitle", $edge->prop("title"));
+  Foswiki::Func::setPreferencesValue("qm_toNode", $edge->toNode->prop("id"));
+  Foswiki::Func::setPreferencesValue("qm_toNodeTitle", $edge->toNode->prop("title"));
+  Foswiki::Func::setPreferencesValue("qm_author", $author->prop("wikiName"));
+  Foswiki::Func::setPreferencesValue("qm_authorTitle", $author->prop("displayName"));
+ 
   my $text = $this->expandValue($tmpl);
 
   $text =~ s/^\s+//g;
   $text =~ s/\s+$//g;
 
-  _writeDebug("...email text=$text");
+  if ($text =~ /^To: *$/m) {
+    _writeDebug("... no recipient");
+    return;
+  }
 
+  unless ($text) {
+    _writeDebug("...woops, email text empty");
+    return;
+  }
+
+  _writeDebug("...email=$text");
+
+  Foswiki::Func::writeEvent("sendmail", "to=".join(", ", sort @emails)." subject=traverse from ".$edge->fromNode->prop("id")." action ".$edge->prop("id")." to ".$edge->toNode->prop("id"));
   my $errors = Foswiki::Func::sendEmail($text, 3);
  
   if ($errors) {
@@ -749,6 +1007,28 @@ sub sendNotification {
   }
  
   return $errors;
+}
+=begin TML
+
+---++ ObjectMethod getNotificationTemplate($edge) -> $templateName
+
+get the name of the template for the given edge. if the edge doesn't have
+a =mailTemplate= property will the QMNet's default net be used. 
+See Foswiki::Plugins::QMPlugin::Net::getNotificationTemplate().
+
+=cut
+
+sub getNotificationTemplate {
+  my ($this, $edge) = @_;
+
+  $edge ||= $this->getCurrentEdge();
+
+  my $template = $this->expandValue($edge->prop("mailTemplate"));
+  $template =~ s/^\s+//;
+  $template =~ s/\s+$//;
+  $template ||= $this->getNet->getNotificationTemplate();
+
+  return $template;
 }
 
 =begin TML
@@ -769,8 +1049,9 @@ sub setACLs {
 
   _writeDebug("called setACLs");
   $node ||= $this->getCurrentNode();
+  my $meta = $this->getMeta();
 
-  _writeDebug("... no current node") unless defined $node;
+  #_writeDebug("... no current node") unless defined $node;
 
   unless (defined $node) {
 
@@ -782,72 +1063,97 @@ sub setACLs {
                         PERMSET_CHANGE_DETAILS 
                         PERMSET_VIEW 
                         PERMSET_VIEW_DETAILS)) {
-      $this->{_meta}->remove('PREFERENCE', $key);
+      $meta->remove('PREFERENCE', $key);
     }
 
+    _writeDebug("... done setACLs");
     return 0;
   }
 
-  my $oldAllowView = $this->{_meta}->get("PREFERENCE", "ALLOWTOPICVIEW");
-  my $oldAllowEdit = $this->{_meta}->get("PREFERENCE", "ALLOWTOPICCHANGE");
-  my $oldAllowApprove = $this->{_meta}->get("PREFERENCE", "ALLOWTOPICAPPROVE");
+  my $oldAllowView = $meta->get("PREFERENCE", "ALLOWTOPICVIEW");
+  my $oldAllowEdit = $meta->get("PREFERENCE", "ALLOWTOPICCHANGE");
+  my $oldAllowApprove = $meta->get("PREFERENCE", "ALLOWTOPICAPPROVE");
 
   $oldAllowView = $oldAllowView ? join(", ", sort split(/\s*,\s*/, $oldAllowView->{value})) : "";
   $oldAllowEdit = $oldAllowEdit ? join(", ", sort split(/\s*,\s*/, $oldAllowEdit->{value})) : "";
   $oldAllowApprove = $oldAllowApprove ? join(", ", sort split(/\s*,\s*/, $oldAllowApprove->{value})) : "";
 
-  _writeDebug("... old allow view : $oldAllowView");
-  _writeDebug("... old allow change : $oldAllowEdit");
-  _writeDebug("... old allow approve : $oldAllowApprove");
+  #_writeDebug("... old allow view : $oldAllowView");
+  #_writeDebug("... old allow change : $oldAllowEdit");
+  #_writeDebug("... old allow approve : $oldAllowApprove");
 
   #_writeDebug("... node=".$node->stringify);
 
   my @allowEdit = $node->getACL("allowEdit");
-  _writeDebug("... new allow change: @allowEdit");
+  #_writeDebug("... new allow change: @allowEdit");
 
-  my $allowEdit = join(", ", @allowEdit);
+  my $allowEdit = join(", ", sort @allowEdit);
   if ($allowEdit ne $oldAllowEdit) {
-    _writeDebug("... setting allowEdit to $allowEdit");
+    #_writeDebug("... setting allowEdit to $allowEdit");
 
-    $this->{_meta}->remove("PREFERENCE", "ALLOWTOPICCHANGE");
-    $this->{_meta}->remove("PREFERENCE", "PERMSET_CHANGE");
-    $this->{_meta}->remove("PREFERENCE", "PERMSET_CHANGE_DETAILS");
+    $meta->remove("PREFERENCE", "ALLOWTOPICCHANGE");
+    $meta->remove("PREFERENCE", "PERMSET_CHANGE");
+    $meta->remove("PREFERENCE", "PERMSET_CHANGE_DETAILS");
 
     if (@allowEdit) {
-      $this->{_meta}->putKeyed('PREFERENCE', {
+      $meta->putKeyed('PREFERENCE', {
         name  => 'ALLOWTOPICCHANGE',
         title => 'ALLOWTOPICCHANGE',
+        value => $allowEdit,
+        type  => 'Set'
+      });
+      $meta->putKeyed('PREFERENCE', {
+        name  => 'PERMSET_CHANGE',
+        title => 'PERMSET_CHANGE',
+        value => 'details',
+        type  => 'Set'
+      });
+      $meta->putKeyed('PREFERENCE', {
+        name  => 'PERMSET_CHANGE_DETAILS',
+        title => 'PERMSET_CHANGE_DETAILS',
         value => $allowEdit,
         type  => 'Set'
       });
     }
     $hasChanged = 1;
   } else {
-    _writeDebug("... allowEdit did not change");
+    #_writeDebug("... allowEdit did not change");
   }
 
   my @allowView = $node->getACL("allowView");
-  _writeDebug("... new allow view: @allowView");
+  #_writeDebug("... new allow view: @allowView");
 
-  my $allowView = join(", ", @allowView);
+  my $allowView = join(", ", sort @allowView);
   if ($allowView ne $oldAllowView) {
-    _writeDebug("... setting allowView to @allowView");
+    #_writeDebug("... setting allowView to @allowView");
 
-    $this->{_meta}->remove("PREFERENCE", "ALLOWTOPICVIEW");
-    $this->{_meta}->remove("PREFERENCE", "PERMSET_VIEW");
-    $this->{_meta}->remove("PREFERENCE", "PERMSET_VIEW_DETAILS");
+    $meta->remove("PREFERENCE", "ALLOWTOPICVIEW");
+    $meta->remove("PREFERENCE", "PERMSET_VIEW");
+    $meta->remove("PREFERENCE", "PERMSET_VIEW_DETAILS");
 
     if (@allowView) {
-      $this->{_meta}->putKeyed('PREFERENCE', {
+      $meta->putKeyed('PREFERENCE', {
         name  => 'ALLOWTOPICVIEW',
         title => 'ALLOWTOPICVIEW',
-        value => join(", ", sort @allowView),
+        value => $allowView,
+        type  => 'Set'
+      });
+      $meta->putKeyed('PREFERENCE', {
+        name  => 'PERMSET_VIEW',
+        title => 'PERMSET_VIEW',
+        value => 'details',
+        type  => 'Set'
+      });
+      $meta->putKeyed('PREFERENCE', {
+        name  => 'PERMSET_VIEW_DETAILS',
+        title => 'PERMSET_VIEW_DETAILS',
+        value => $allowView,
         type  => 'Set'
       });
     }
     $hasChanged = 1;
   } else {
-    _writeDebug("... allowView did not change");
+    #_writeDebug("... allowView did not change");
   }
 
   my @allowApprove = $this->getPossibleReviewers();
@@ -855,11 +1161,11 @@ sub setACLs {
 
   if ($allowApprove ne $oldAllowApprove) {
 
-    $this->{_meta}->remove("PREFERENCE", "ALLOWTOPICAPPROVE");
+    $meta->remove("PREFERENCE", "ALLOWTOPICAPPROVE");
 
     if (@allowApprove) {
-      _writeDebug("... setting new allowApprove to $allowApprove");
-      $this->{_meta}->putKeyed('PREFERENCE', {
+      #_writeDebug("... setting new allowApprove to $allowApprove");
+      $meta->putKeyed('PREFERENCE', {
         name  => 'ALLOWTOPICAPPROVE',
         title => 'ALLOWTOPICAPPROVE',
         value => $allowApprove,
@@ -869,7 +1175,7 @@ sub setACLs {
 
     $hasChanged = 1;
   } else {
-    _writeDebug("... allowApprove did not change");
+    #_writeDebug("... allowApprove did not change");
   }
 
   _writeDebug("... done setACLs ... hasChanged=$hasChanged");
@@ -934,34 +1240,43 @@ sub getRevision {
 
 =begin TML
 
----++ ObjectMethod getLAstApproved() -> $state
+---++ ObjectMethod getLastApproved($force) -> $state
 
-get the state that was last approved starting at the current rev
+get the state that was last approved starting at the current rev.
+if $force is set the last revision will be digged out by a search.
+the =approvalRev= property will be used otherwise.
 
 =cut
 
 sub getLastApproved {
-  my $this = shift;
+  my ($this, $force) = @_;
 
   my $net = $this->getNet();
   return unless $net;
 
+  $force //= 0;
+  _writeDebug("called getLastApproved force=$force");
+
   my $state = $this->{_lastApproved};
   return $state if $state;
 
-  my $node = $net->getApprovalNode();
-  return unless $node;
+  my $rev = $force ? undef: $this->{approvalRev};
+  _writeDebug("...rev=".($rev//'undef'));
 
-  my $approvalID = $node->prop("id");
+  if (defined $rev) {
+    return if $rev eq "";
+    $state = $this->getCore->getState($this->{_web}, $this->{_topic}, $rev);
+  } else {
 
-  for (my $i = $this->{_rev}; $i > 0; $i--) {
-    my $s = $this->getCore->getState($this->{_web}, $this->{_topic}, $i);
-    next unless $s && $s->prop("id");
-    next unless $s->prop("changed") || $i == 1;
-    next unless $approvalID eq $s->prop("id");
+    for (my $i = $this->{_rev}; $i > 0; $i--) {
+      my $s = $this->getCore->getState($this->{_web}, $this->{_topic}, $i);
+      next unless $s && $s->prop("id");
+      next unless $s->prop("changed") || $i == 1;
+      next unless $s->isApproved();
 
-    $state = $s;
-    last;
+      $state = $s;
+      last;
+    }
   }
   $this->{_lastApproved} = $state;
 
@@ -1072,7 +1387,7 @@ sub getCurrentEdge {
   my $net = $this->getNet;
   return unless $net;
 
-  my $edge = $net->getEdge($this->{previousNode}, $action);
+  my $edge = $net->getEdge($this->{previousNode}, $action, $this->{id});
   return unless defined $edge;
 
   return $edge;
@@ -1090,7 +1405,9 @@ get the net that this state is currently associated with
 sub getNet {
   my $this = shift;
 
-  return $this->{_net};
+  my $net = $this->{_net};
+  $net->setState($this) if $net;
+  return $net;
 }
 
 =begin TML
@@ -1143,18 +1460,23 @@ sub getPossibleEdges {
   my ($this, $node, $user) = @_;
 
   $user //= $this->getCore->getSelf();
+  $node //= $this->getCurrentNode();
+
+  #_writeDebug("called getPossibleEdges node=".($node?$node->prop("id"):"undef").", user=".$user->prop("wikiName"));
 
   my @edges = ();
 
-  unless ($this->isParallel() && $this->isReviewedBy($user)) {
-    $node //= $this->getCurrentNode();
-
-    if (defined $node) {
-      foreach my $edge ($node->getOutgoingEdges()) {
-        push @edges, $edge if $edge->isEnabled($user);
+  if ($user) {
+    unless ($this->isParallel() && $this->isReviewedBy($user)) {
+      if (defined $node) {
+        foreach my $edge ($node->getOutgoingEdges()) {
+          push @edges, $edge if $edge->isEnabled($user);
+        }
       }
     }
   }
+
+  #_writeDebug("... found ".scalar(@edges)." edge(s)");
 
   return @edges;
 }
@@ -1177,7 +1499,7 @@ sub getTriggerableEdges {
   $user //= $this->getCore->getSelf();
   $node //= $this->getCurrentNode();
   
-  if (defined $node) {
+  if (defined $node && defined $user) {
 
     foreach my $edge ($node->getOutgoingEdges()) {
       _writeDebug("testing edge ".$edge->stringify);
@@ -1204,9 +1526,9 @@ sub isReviewedBy {
 
   $user //= $this->getCore->getSelf();
 
-  if ($this->{_reviews}) {
+  if ($this->{_reviews} && defined $user) {
     foreach my $review ($this->getReviews()) {
-      return $review->prop("from") eq $this->{id} && (
+      return ($review->prop("from") // '_unknown_') eq $this->{id} && (
         $review->prop("author") eq $user->prop("id") ||
         $review->prop("author") eq $user->prop("userName") ||
         $review->prop("author") eq $user->prop("wikiName") 
@@ -1237,6 +1559,23 @@ sub isParallel {
 
 =begin TML
 
+---++ ObjectMethod isApproved($node) -> $boolean
+
+returns true if the given or current node of the state is an
+approval node
+
+=cut
+
+sub isApproved {
+  my ($this, $node) = @_;
+
+  $node //= $this->getCurrentNode;
+
+  return $node && $node->isApprovalNode ? 1 : 0;
+}
+
+=begin TML
+
 ---++ ObjectMethod hasChanged() -> $boolean
 
 returns true when this state was changed as part of a transition, returns false if other
@@ -1245,8 +1584,9 @@ changes happened to the topic
 =cut
 
 sub hasChanged {
-  my $this = shift;
+  my ($this, $val) = @_;
 
+  $this->{_gotChange} = $val if defined $val;
   return $this->{_gotChange} ? 1:0;
 }
 
@@ -1254,8 +1594,8 @@ sub hasChanged {
 
 ---++ ObjectMethod getCurrentSignOff($edge) -> $percent
 
-get the current sign-off progress in percent that the given
-edge has already been approved by reviewers
+get the current sign-off progress counting the number of people
+that already reviewed this state
 
 =cut
 
@@ -1268,15 +1608,14 @@ sub getCurrentSignOff {
 
   #_writeDebug("edge: ".$edge->stringify);
 
-  my @reviewers = $this->getReviewers($edge->prop("action"));
-  #_writeDebug("reviewers=@reviewers");
-  return 0 unless @reviewers;
+  my $numReviews = $this->getNumReviews($edge);
+  return 0 unless $numReviews;
 
   my @allowed = $edge->getReviewers;
   #_writeDebug("allowed=@allowed");
   return 1 unless @allowed;
 
-  my $signOff =  scalar(@reviewers) / scalar(@allowed);
+  my $signOff = $numReviews / scalar(@allowed);
   #_writeDebug("signOff=$signOff");
 
   return $signOff;
@@ -1326,9 +1665,28 @@ sub getReviewers {
 
 =begin TML
 
----++ ObjectMethod getcomments() -> @comments
+---++ ObjectMethod getNumReviews($edge) -> $number
 
-get the list of comments in reviews
+returns the number of people that already reviewed the current state
+using the given action
+
+=cut
+
+sub getNumReviews {
+  my ($this, $edge) = @_;
+
+  return scalar($this->getReviewers($edge->prop("action")));
+}
+
+=begin TML
+
+---++ ObjectMethod getComments() -> @comments
+
+get the list of comments in reviews; each item in the result list has properties:
+
+   * author
+   * date
+   * text
 
 =cut
 
@@ -1339,7 +1697,12 @@ sub getComments {
 
   foreach my $review ($this->getReviews()) {
     my $comment = $review->prop("comment");
-    push @comments, $comment if defined($comment) && $comment ne "";
+
+    push @comments, {
+      author => $review->prop("author"),
+      date => $review->prop("date"),
+      text => $review->prop("comment"), 
+    };
   }
   
   return @comments;
@@ -1363,7 +1726,10 @@ sub getPossibleReviewers {
   my %reviewers = ();
 
   if (defined $from) {
+
     foreach my $edge ($from->getOutgoingEdges) {
+       next unless $edge->isEnabled();
+
       if (defined $action) {
         my $edgeAction = $$edge->prop("action");
         next unless $edgeAction eq $action;
@@ -1404,10 +1770,12 @@ sub getPendingApprovers {
 
   $node //= $this->getCurrentNode();
 
-  my $approval = $this->getNet->getApprovalNode();
-  my @possibleApprovers = $this->getPossibleReviewers($node, undef, $approval);
+  my @users = ();
+  foreach my $approval (@{$this->getNet->getApprovalNodes()}) {
+    push @users, $this->getPossibleReviewers($node, undef, $approval);
+  }
 
-  return @possibleApprovers;
+  return @users;
 }
 
 =begin TML
@@ -1458,6 +1826,23 @@ sub reroute {
   return $this;
 }
 
+=begin TML
+
+---++ ObjectMethod reassign($to) 
+
+change meta object part of this state
+
+=cut
+
+sub reassign {
+  my ($this, $to) = @_;
+
+  $this->{_web} = $to->web;
+  $this->{_topic} = $to->topic;
+  $this->{_meta} = $to;
+
+  return $this;
+}
 
 =begin TML
 
@@ -1474,10 +1859,11 @@ sub render {
   return "" unless defined $net;
 
   my $defaultNode = $net->getDefaultNode;
-  my $defaultID = $defaultNode->prop("id");
+  my $defaultID = $defaultNode ? $defaultNode->prop("id") : "???";
 
-  my $approval = $net->getApprovalNode;
-  my $approvalID = $approval?$approval->prop("id"):'';
+  my $approvals = $net->getApprovalNodes;
+  my $approvalID = @$approvals? $approvals->[0]->prop("id") : ''; 
+  my $approvalIDs = join(", ", map {$_->prop("id")} @$approvals);
 
   my $adminRole = $net->getAdminRole;
   my $adminID = $adminRole?$adminRole->prop("id"):'';
@@ -1490,29 +1876,33 @@ sub render {
 
   my $edge = $this->getCurrentEdge();
   my $notify = "";
-  my $emails = "";
   if ($result =~ /\$notify\b/) {
     $notify = $edge ? join(", ", sort map {$_->prop("id")} $edge->getNotify()):"";
   }
+  my $emails = "";
   if ($result =~ /\$emails\b/) {
     $emails = $edge?join(", ", sort $edge->getEmails()):"";
   }
-  my $edgeTitle = $edge ? $edge->prop("title") : "";
 
   my $numActions = 0;
   my $actions = "";
   if ($result =~ /\$(actions|numActions)\b/) {
-    my @actions = sort $this->getPossibleActions();
+    my @actions = sort grep {!/_hidden_/} $this->getPossibleActions();
     $actions = join(", ", @actions);
     $numActions = scalar(@actions);
   }
 
   my $numEdges = 0;
   my $edges = "";
-  if ($result =~ /\$(edges|numEdges)\b/) {
-    my @edges = sort {$a->index <=> $b->index} $this->getPossibleEdges();
+  my $nodes = "";
+  if ($result =~ /\$(edges|nodes|numEdges)\b/) {
+
+    my @edges = sort {$a->index <=> $b->index} grep {$_->prop("action") ne "_hidden_"} $this->getPossibleEdges();
     $edges = join(", ", map {$_->prop("from") . "/" . $_->prop("action"). "/" . $_->prop("to")} @edges);
     $numEdges = scalar(@edges);
+
+    my %nodes = map {$_->prop("to") => 1} @edges;
+    $nodes = join(", ", sort keys %nodes);
   }
 
   # state props
@@ -1535,25 +1925,48 @@ sub render {
     $roles = join(", ", map {$_->prop("id")} $net->getRoles());
   }
 
-  my @comments = $this->getComments();
-  my $comments = join(", ", @comments);
+  my $json = "";
+  if ($result =~ /\$json\b/) {
+    $json = $this->json->pretty->encode($this->asJson($params));
+  }
+
+  my @comments = grep {$_->{text} !~ /^\s*$/} $this->getComments();
   my $hasComments = scalar(@comments)?1:0;
+  my $comments = join(", ", map {$_->{text}} @comments);
+  my $comment = scalar(@comments) ? $comments[-1]->{text} : "";
+
   my $reviewers = join(", ", sort map {$_->prop("wikiName") || $_->prop("id")} $this->getReviewers());
   my $numReviews = $this->numReviews();
   my $numComments = $this->numComments();
+
+  my $toNode;
+  if ($numReviews) {
+    my @reviews = $this->getReviews();
+    my $to = $reviews[0]->prop("to");
+    $toNode = $this->getNet->getNode($to);
+  }
+  my $to = $toNode ? $toNode->prop("id") : "";
+  my $toTitle = $toNode ? $this->translate($toNode->prop("title")) : "";
+
+  my $action = $this->expandValue($this->prop("reviewAction") || $this->prop("previousAction"));
+  my $nextEdge = $this->getNet->getEdge($node, $action, $toNode) || $this->getCurrentEdge();
+  my $actionTitle = $nextEdge ? $this->translate($this->expandValue($nextEdge->prop("title"))) : "";
+  my $class = $node->prop("class") || 'foswikiAlt';
 
   $result =~ s/\$web\b/$this->{_web}/g;
   $result =~ s/\$topic\b/$this->{_topic}/g;
   $result =~ s/\$roles\b/$roles/g;
   $result =~ s/\$rev\b/$this->{_rev}/g;
-  $result =~ s/\$(approved|approval)Rev\b/$this->getLastApproved()?$this->getLastApproved->getRevision():''/ge;
-  $result =~ s/\$approvalTime\b/$this->getLastApproved()?$this->getLastApproved->prop("date"):''/ge;
-  $result =~ s/\$approvalDuration\b/$this->getLastApproved()?time() - $this->getLastApproved->prop("date"):''/ge;
+  $result =~ s#\$(approved|approval)Rev\b#$this->prop("approvalRev") // ($this->getLastApproved ?$this->getLastApproved->getRevision():'')#ge;
+  $result =~ s/\$approvalTime\b/$this->getLastApproved ?$this->getLastApproved->prop("date"):''/ge;
+  $result =~ s/\$approvalDuration\b/$this->getLastApproved ? time() - $this->getLastApproved->prop("date") : ''/ge;
   $result =~ s/\$approval(ID|State)?\b/$approvalID/gi;
+  $result =~ s/\$approvalIDs\b/$approvalIDs/gi;
   $result =~ s/\$defaultNode\b/$defaultID/g;
   $result =~ s/\$admin(ID|Role)?\b/$adminID/gi;
   $result =~ s/\$actions\b/$actions/g;
   $result =~ s/\$edges\b/$edges/g;
+  $result =~ s/\$nodes\b/$nodes/g;
   $result =~ s/\$numActions\b/$numActions/g;
   $result =~ s/\$numEdges\b/$numEdges/g;
   $result =~ s/\$numReviews\b/$numReviews/g;
@@ -1568,15 +1981,20 @@ sub render {
   $result =~ s/\$duration\b/$duration/g; 
   $result =~ s/\$previousState\b/$previousState/g; 
   $result =~ s/\$hasComments?\b/$hasComments/g;
-  $result =~ s/\$comments?\b/$comments/g;
+  $result =~ s/\$comment\b/$comment/g;
+  $result =~ s/\$comments\b/$comments/g;
   $result =~ s/\$reviewers\b/$reviewers/g;
-  $result =~ s/\$action\b/$this->expandValue($this->prop("reviewAction") || $this->prop("previousAction"))/ge;
-  $result =~ s/\$actionTitle\b/$this->expandValue($edgeTitle)/ge;
+  $result =~ s/\$actionTitle\b/$actionTitle/g;
+  $result =~ s/\$action\b/$action/g;
   $result =~ s/\$signOff\b/floor($this->getCurrentSignOff()*100)/ge;
   $result =~ s/\$possibleReviewers(?:\((.*?)\))?/join(", ", sort map {$_->prop("wikiName") || $_->prop("id")} $this->getPossibleReviewers(undef, undef, $1))/ge;
   $result =~ s/\$isParallel\b/$isParallel/g;
   $result =~ s/\$isAdmin\b/$adminRole?($adminRole->isMember($1)?1:0):""/ge;
   $result =~ s/\$state\b/$this->{id}/g; # alias
+  $result =~ s/\$to\b/$to/g;
+  $result =~ s/\$toTitle\b/$toTitle/g;
+  $result =~ s/\$json\b/$json/g;
+  $result =~ s/\$class\b/$class/g;
 
   if ($result =~ /\$reviews\b/) {
     my $reviews = $this->renderReviews($params);
@@ -1589,6 +2007,30 @@ sub render {
   $result = $this->expandValue($node->render($result));
 
   return $result;
+}
+
+
+=begin TML
+
+---++ ObjectMethod asJson() -> $json
+
+TODO
+
+=cut
+
+sub asJson {
+  my ($this, $params) = @_;
+
+  my $json = {
+    node => {},
+    edges => []
+  };
+
+  my $node = $this->getCurrentNode();
+  $json->{node} = $node->asJson() if $node;
+  $json->{edges} = [map {$_->asJson()} grep {$_->prop("action") ne "_hidden_"} $this->getPossibleEdges($node)];
+ 
+  return $json;
 }
 
 =begin TML
@@ -1672,6 +2114,19 @@ sub getCore {
   return Foswiki::Plugins::QMPlugin->getCore();
 }
 
+=begin TML
+
+---++ ObjectMethod translate($string) -> $string
+
+translates a string using MultiLingualPlugin
+
+=cut
+
+sub translate {
+  my ($this, $string) = @_;
+
+  return Foswiki::Plugins::MultiLingualPlugin::translate($string, $this->getWeb, $this->getTopic);
+}
 
 =begin TML
 
@@ -1692,6 +2147,24 @@ sub stringify {
 
   return join(", ", @result);
 }
+
+=begin TML
+
+---++ ObjectMethod json()
+
+returns a JSON encoder/decoder
+
+=cut
+
+sub json {
+  my $this = shift;
+
+  $this->{_json} //= JSON->new();
+
+  return $this->{_json};
+}
+
+### statics
 
 sub _writeDebug {
   return unless TRACE;

@@ -1,9 +1,12 @@
 FOSWIKI_ROOT?=~/foswiki/core
-TARGET=qmplugin.css qmplugin.js 
+TARGET=build/qmplugin.css build/qmplugin.js 
 
 -include $(FOSWIKI_ROOT)/pub/System/JQueryPlugin/Makefile.include
 
 .PHONY: clean
 
-clean:
-	rm -f $(TARGET) *.gz 
+build/%.css: src/%.css
+	@echo generating $@; $(CAT) $^ | $(CSSMIN) $(CSSMIN_ARGS) > $@
+
+build/%.js: src/%.js
+	@echo generating $@; $(JSMIN) $^ > $@

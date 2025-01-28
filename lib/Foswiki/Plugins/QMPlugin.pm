@@ -1,6 +1,6 @@
 # Plugin for Foswiki - The Free and Open Source Wiki, https://foswiki.org/
 #
-# QMPlugin is Copyright (C) 2019-2021 Michael Daum http://michaeldaumconsulting.com
+# QMPlugin is Copyright (C) 2019-2025 Michael Daum http://michaeldaumconsulting.com
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -30,9 +30,10 @@ use Foswiki::Func ();
 use Foswiki::Plugins::JQueryPlugin ();
 use Foswiki::Contrib::JsonRpcContrib ();
 
-our $VERSION = '0.9993';
-our $RELEASE = '28 Jan 2021';
+our $VERSION = '1.00';
+our $RELEASE = '%$RELEASE%';
 our $SHORTDESCRIPTION = 'Workflow Engine for Quality Management';
+our $LICENSECODE = '%$LICENSECODE%';
 our $NO_PREFS_IN_TOPIC = 1;
 our $core;
 
@@ -45,6 +46,7 @@ initialize the plugin, automatically called during the core initialization proce
 =cut
 
 sub initPlugin {
+  my ($topic, $web) = @_;
 
   Foswiki::Plugins::JQueryPlugin::registerPlugin('QMPlugin', 'Foswiki::Plugins::QMPlugin::JQuery');
   Foswiki::Func::registerTagHandler('QMBUTTON', sub { return getCore()->QMBUTTON(@_); });
@@ -56,11 +58,14 @@ sub initPlugin {
   Foswiki::Func::registerTagHandler('QMSTATE', sub { return getCore()->QMSTATE(@_); });
   Foswiki::Func::registerTagHandler('QMNET', sub { return getCore()->QMNET(@_); });
 
-  Foswiki::Func::registerRESTHandler('triggerStates', sub { return getCore()->restTriggerStates(@_); },
-    validate => 1,
-    authenticate => 1,
-    http_allow => 'GET,POST',
-  );
+  # commandline tools
+  if (Foswiki::Func::getContext()->{command_line}) {
+    Foswiki::Func::registerRESTHandler('triggerStates', sub { return getCore()->restTriggerStates(@_); },
+      validate => 1,
+      authenticate => 1,
+      http_allow => 'GET,POST',
+    );
+  }
 
   Foswiki::Contrib::JsonRpcContrib::registerMethod("QMPlugin", "changeState", sub {
     return getCore()->jsonRpcChangeState(@_);
@@ -85,19 +90,98 @@ sub initPlugin {
     }
   }
 
-  if ($Foswiki::cfg{Plugins}{SolrPlugin} && $Foswiki::cfg{Plugins}{SolrPlugin}{Enabled}) {
+  my $solrPluginEnabled = exists $Foswiki::cfg{Plugins}{SolrPlugin} && $Foswiki::cfg{Plugins}{SolrPlugin}{Enabled};
+  my $dbCachePluginEnabled = exists $Foswiki::cfg{Plugins}{DBCachePlugin} && $Foswiki::cfg{Plugins}{DBCachePlugin}{Enabled};
+  my $jqDataTablesEnabled = exists $Foswiki::cfg{Plugins}{JQDataTablesPlugin} && $Foswiki::cfg{Plugins}{JQDataTablesPlugin}{Enabled};
+
+  if ($solrPluginEnabled) {
     require Foswiki::Plugins::SolrPlugin;
     Foswiki::Plugins::SolrPlugin::registerIndexTopicHandler(sub {
       return getCore()->solrIndexTopicHandler(@_);
     });
+    Foswiki::Plugins::SolrPlugin::registerIndexAttachmentHandler(sub {
+      return getCore()->solrIndexAttachmentHandler(@_);
+    });
   }
 
-  if ($Foswiki::cfg{Plugins}{DBCachePlugin} && $Foswiki::cfg{Plugins}{DBCachePlugin}{Enabled}) {
+  if ($dbCachePluginEnabled) {
     require Foswiki::Plugins::DBCachePlugin;
     Foswiki::Plugins::DBCachePlugin::registerIndexTopicHandler(sub {
       return getCore()->dbCacheIndexTopicHandler(@_);
     });
   }
+
+  if ($jqDataTablesEnabled) {
+
+    # register qmstate properties to JQDataTablesPlugin
+    require Foswiki::Plugins::JQDataTablesPlugin;
+
+    if ($dbCachePluginEnabled) {
+      Foswiki::Plugins::JQDataTablesPlugin::describeColumn("dbcache", "qmstate", {
+        type => 'default',
+        data => 'translate(qmstate.title)',
+        search => 'lc(translate(qmstate.title))',
+        sort => 'qmstate.index',
+      });
+      Foswiki::Plugins::JQDataTablesPlugin::describeColumn("dbcache", "qmstate_title", "translate(qmstate.title)");
+      Foswiki::Plugins::JQDataTablesPlugin::describeColumn("dbcache", "qmstate_index", "qmstate.index");
+      Foswiki::Plugins::JQDataTablesPlugin::describeColumn("dbcache", "workflow", "workflow.name");
+      Foswiki::Plugins::JQDataTablesPlugin::describeColumn("dbcache", "workflowstate", "workflow.name");
+      Foswiki::Plugins::JQDataTablesPlugin::describeColumn("dbcache", "qmstate_id", "qmstate.id");
+      Foswiki::Plugins::JQDataTablesPlugin::describeColumn("dbcache", "qmstate_comments", "qmreview[comment]");
+      Foswiki::Plugins::JQDataTablesPlugin::describeColumn("dbcache", "qmstate_progress", {
+        type => "percent",
+        data => "qmstate.progress",
+        search => "qmstate.progress",
+        sort => "qmstate.progress",
+      });
+      Foswiki::Plugins::JQDataTablesPlugin::describeColumn("dbcache", "qmstate_date", {
+        type => 'date',
+        data => 'qmstate.date',
+        search => 'lc(n2d(qmstate.date))',
+        sort => 'qmstate.date',
+      });
+      Foswiki::Plugins::JQDataTablesPlugin::describeColumn("dbcache", "qmstate_pendingApprover", {
+        type => 'user',
+        data => "qmstate.pendingApprover",
+        search => 'lc(qmstate.pendingApprover)',
+        sort => 'lc(qmstate.pendingApprover)',
+      });
+      Foswiki::Plugins::JQDataTablesPlugin::describeColumn("dbcache", "qmstate_pendingReviewers", {
+        type => 'user',
+        data => "qmstate.pendingReviewers",
+        search => 'lc(qmstate.pendingReviewers)',
+        sort => 'lc(qmstate.pendingReviewers)',
+      });
+      Foswiki::Plugins::JQDataTablesPlugin::describeColumn("dbcache", "qmstate_possibleReviewers", {
+        type => 'user',
+        data => "qmstate.possibleReviewers",
+        search => 'lc(qmstate.possibleReviewers)',
+        sort => 'lc(qmstate.possibleReviewers)',
+      });
+      Foswiki::Plugins::JQDataTablesPlugin::describeColumn("dbcache", "qmstate_reviewers", {
+        type => 'user',
+        data => 'qmstate.reviewers',
+        search => 'lc(qmstate.reviewers)',
+        sort => 'lc(qmstate.reviewers)',
+      });
+    }
+
+    # TODO: complete solr columns
+    if ($solrPluginEnabled) {
+      Foswiki::Plugins::JQDataTablesPlugin::describeColumn("solr", "workflow", "state");
+      Foswiki::Plugins::JQDataTablesPlugin::describeColumn("solr", "workflowstate", "state");
+      Foswiki::Plugins::JQDataTablesPlugin::describeColumn("solr", "qmstate_id", "state");
+      #'qmstate' => 'qmstate.title',
+      #'qmstate_id' => 'qmstate.id',
+      #'qmstate_pendingApprover' => 'qmstate.pendingApprover',
+      #'qmstate_reviewers' => 'qmstate.reviewers',
+      #'qmstate_comments' => 'qmreview.comment',
+    }
+  }
+
+  # set view, edit and print templates if available
+  getCore()->setTemplateName($web, $topic);
 
   return 1;
 }
@@ -112,7 +196,7 @@ automatically called during the core initialization process
 =cut
 
 sub finishPlugin {
-  $core->finish () if defined $core;
+  $core->finish() if defined $core;
   undef $core;
 }
 
@@ -127,7 +211,8 @@ during each session request; once a core has been created it is destroyed during
 
 sub getCore {
   unless (defined $core) {
-    require Foswiki::Plugins::QMPlugin::Core;
+    eval { use Foswiki::Plugins::QMPlugin::Core };
+    print STDERR "ERROR: $@\n" if $@;
     $core = Foswiki::Plugins::QMPlugin::Core->new();
   }
   return $core;
@@ -145,6 +230,20 @@ sub beforeSaveHandler {
   my ($text, $topic, $web, $meta) = @_;
 
   getCore()->beforeSaveHandler($web, $topic, $meta);
+}
+
+=begin TML
+
+---++ afterSaveHandler($text, $topic, $web, $error, $meta )
+
+make sure the saved topic has got the right access control settings
+
+=cut
+
+sub afterSaveHandler {
+  my ($text, $topic, $web, $error, $meta) = @_;
+
+  getCore()->afterSaveHandler($web, $topic, $meta);
 }
 
 =begin TML

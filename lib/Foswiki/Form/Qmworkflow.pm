@@ -1,6 +1,6 @@
 # Plugin for Foswiki - The Free and Open Source Wiki, http://foswiki.org/
 #
-# MoreFormfieldsPlugin is Copyright (C) 2020-2021 Michael Daum http://michaeldaumconsulting.com
+# QMPlugin is Copyright (C) 2020-2025 Michael Daum http://michaeldaumconsulting.com
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -23,6 +23,7 @@ our @ISA = ('Foswiki::Form::Topic');
 
 sub new {
   my $class = shift;
+
   my $this = $class->SUPER::new(@_);
 
   $this->{_formfieldClass} = 'foswikiQMWorkflow';

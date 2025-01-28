@@ -1,6 +1,6 @@
 # Plugin for Foswiki - The Free and Open Source Wiki, https://foswiki.org/
 #
-# QMPlugin is Copyright (C) 2019-2021 Michael Daum http://michaeldaumconsulting.com
+# QMPlugin is Copyright (C) 2019-2025 Michael Daum http://michaeldaumconsulting.com
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -30,9 +30,16 @@ use warnings;
 
 use Exporter;
 our @ISA = ('Exporter');
-our @EXPORT = qw(
-  trashTopic moveTopic copyTopic renameTopic 
-  trashAttachments trashAttachment copyAttachments copyAttachment
+our @EXPORT_OK = qw(
+      trashTopic moveTopic copyTopic renameTopic expandAUTOINC
+      trashAttachments trashAttachment copyAttachments copyAttachment
+    );
+our %EXPORT_TAGS = (
+  all => [qw(
+      trashTopic moveTopic copyTopic renameTopic expandAUTOINC
+      trashAttachments trashAttachment copyAttachments copyAttachment
+    )
+  ]
 );
 
 use constant TRACE => 0; # toggle me
@@ -45,7 +52,7 @@ use Foswiki::Plugins::QMPlugin ();
 
 =begin TML
 
----++ ClassMethod trashTopic($meta)
+---++ StaticMethod trashTopic($meta)
 
 moves a topic object to the trash web. see also Foswiki::UI::Rename
 
@@ -72,7 +79,7 @@ sub trashTopic {
 
 =begin TML
 
----++ ClassMethod trashAttachments($meta)
+---++ StaticMethod trashAttachments($meta)
 
 moves all attachments of a topic objects to the trash. see also Foswiki::UI::Rename
 
@@ -90,7 +97,7 @@ sub trashAttachments {
 
 =begin TML
 
----++ ClassMethod trashAttachment($from, $attachment)
+---++ StaticMethod trashAttachment($from, $attachment)
 
 move a single attachment to the trash
 
@@ -124,7 +131,7 @@ sub trashAttachment {
 
 =begin TML
 
----++ ClassMethod copyAttachments($from, $to)
+---++ StaticMethod copyAttachments($from, $to)
 
 moves all attachments from one topic to another.
 
@@ -142,7 +149,7 @@ sub copyAttachments {
 
 =begin TML
 
----++ ClassMethod copyAttachment($from, $attachment, $to)
+---++ StaticMethod copyAttachment($from, $attachment, $to)
 
 move a single attachment from one topic to another.
 
@@ -167,7 +174,6 @@ sub copyAttachment {
     stream => $fh,
     dontlog => 1,
     notopicchange => 1,
-    nohandlers => 1,
   );
 
   my $toAttachment = $to->get("FILEATTACHMENT", $attachment->{name});
@@ -176,7 +182,7 @@ sub copyAttachment {
 
 =begin TML
 
----++ ClassMethod copyTopic($from, $to)
+---++ StaticMethod copyTopic($from, $to)
 
 copies the  one topic to another. Note that
 this function only copies over the top revision of the source
@@ -205,19 +211,21 @@ sub copyTopic {
   $to->text($from->text() // '');
   $to->copyFrom($from);
 
-  copyAttachments($from, $to);
-
   my $core = Foswiki::Plugins::QMPlugin::getCore();
-  $core->saveMeta($to,
+  my $rev = $core->saveMeta($to,
     ignorepermissions => 1,
     forcenewrevision => 1,
     @_
   );
+
+  copyAttachments($from, $to);
+
+  return $rev;
 }
 
 =begin TML
 
----++ ClassMethod moveTopic($from, $to)
+---++ StaticMethod moveTopic($from, $to)
 
 this function copies the source topic to the target
 and then deletes the source topic afterwards.
@@ -228,13 +236,14 @@ sub moveTopic {
   my $from = shift;
   my $to = shift;
 
+  _writeDebug("moveTopic()");
   copyTopic($from, $to, @_);
   trashTopic($from);
 }
 
 =begin TML
 
----++ ClassMethod renameTopic($from, $to)
+---++ StaticMethod renameTopic($from, $to)
 
 rename/moves topic from one location to another.
 Note that =$to= can either be a Foswiki::Meta object
@@ -244,6 +253,8 @@ or a topic name
 
 sub renameTopic {
   my ($from, $toOrTopic) = @_;
+
+  _writeDebug("renameTopic()");
 
   my $to;
 
@@ -258,6 +269,58 @@ sub renameTopic {
   $from->move($to);
 
   return $to;
+}
+
+=begin TML
+
+---++ ObjectMethod expandAUTOINC($web, $topic) -> $topic
+
+from Foswiki::Meta
+
+=cut
+
+sub expandAUTOINC {
+  my ($web, $topic) = @_;
+
+  my $session = $Foswiki::Plugins::SESSION;
+
+  # Do not remove, keep as undocumented feature for compatibility with
+  # TWiki 4.0.x: Allow for dynamic topic creation by replacing strings
+  # of at least 10 x's XXXXXX with a next-in-sequence number.
+  if ($topic =~ m/X{10}/) {
+    my $n = 0;
+    my $baseTopic = $topic;
+    my $topicObject = Foswiki::Meta->new($session, $web, $baseTopic);
+    $topicObject->clearLease();
+    do {
+      $topic = $baseTopic;
+      $topic =~ s/X{10}X*/$n/e;
+      $n++;
+    } while (Foswiki::Func::topicExists($web, $topic));
+  }
+
+  # Allow for more flexible topic creation with sortable names.
+  # See Codev.AutoIncTopicNameOnSave
+  if ($topic =~ m/^(.*)AUTOINC(\d+)(.*)$/) {
+    my $pre = $1;
+    my $start = $2;
+    my $pad = length($start);
+    my $post = $3;
+    my $topicObject = Foswiki::Meta->new($session, $web, $topic);
+    $topicObject->clearLease();
+    my $webObject = Foswiki::Meta->new($session, $web);
+    my $it = $webObject->eachTopic();
+
+    while ($it->hasNext()) {
+      my $tn = $it->next();
+      next unless $tn =~ m/^${pre}(\d+)${post}$/;
+      $start = $1 + 1 if ($1 >= $start);
+    }
+    my $next = sprintf("%0${pad}d", $start);
+    $topic =~ s/AUTOINC[0-9]+/$next/;
+  }
+
+  return $topic;
 }
 
 sub _writeDebug {

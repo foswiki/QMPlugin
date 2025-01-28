@@ -1,5 +1,5 @@
-%META:TOPICINFO{author="ProjectContributor" comment="reprev" date="1612863506" format="1.1" reprev="9" version="1"}%
----+!! Quality Management Plugin
+%META:TOPICINFO{author="ProjectContributor" comment="" date="1738061533" format="1.1"  version="1"}%
+---+!! Quality Management and Workflow Plugin
 %FORMFIELD{"Description"}%
 
 %TOC%
@@ -13,7 +13,7 @@ play different roles, e.g. being an idea creator, elaborator, maintainer, review
 The actual workflow varies in most real world scenarios and can be customized to exactly your needs. Of course
 multiple workflows may exist for different kind of content being managed in different ways.
 
-Similar plugins have been implemented before: [[Foswiki:Extensions/WorkflowPlugin][WorkflowPlugin]], [[Foswiki:Extensions/ApprovalPlugin][ApprovalPlugin]].
+Similar plugins have been implemented before: [[https://foswiki.org/Extensions/WorkflowPlugin][WorkflowPlugin]], [[https://foswiki.org/Extensions/ApprovalPlugin][ApprovalPlugin]].
 %TOPIC% is a completely new and clean implementation. Key differences are:
 
    * strictly object oriented
@@ -21,7 +21,7 @@ Similar plugins have been implemented before: [[Foswiki:Extensions/WorkflowPlugi
    * consistent access control: purely rely on Foswiki's access control mechanism to grant access to documents; no unapproved content is disclosed by any means, such as other plugins accessing or indexing the content
    * approval rights: maintain approval rights separate to pure change rights to a topic, so people can approve content yet have no other rights to change it
    * roles: a role concept eases workflow definitions a lot
-   * visual workflows: workflows are visualized using [[Foswiki:Extensions/GraphvizPlugin][GraphvizPlugin]]
+   * visual workflows: workflows are visualized using [[https://foswiki.org/Extensions/GraphvizPlugin][GraphvizPlugin]]
    * workflow history: improved storage format of the workflow history of a topic; backwards compatible with <nop>WorkflowPlugin
    * commands: implement an open command handling mechanism that can be customized and extended by other plugins (commands are executed during transitions)
    * fork-merge: approved documents may be forked into a copy while working on a new revision; the previously approved content is still accessible while the forked version is work in progress; the newly approved revision may then be merged back onto its origin where it was initially forked from
@@ -48,6 +48,10 @@ A node in a workflow has got a set of properties which then affect the document 
    * =message=: (optional) verbose description (e.g. ``This document is being worked on'', ''This document is waiting for approval.'', ``This document is approved.'', ...)
    * =allowEdit=: (optional) acl controling edit rights on the document
    * =allowView=: (optional) acl controling view rights
+   * =class=: (optional) a css class to be added to the status box being rendered when the document is in that state
+   * =viewTemplate=: (optional) the =VIEW_TEMPLATE= setting that a topic inherits being in that state
+   * =editTemplate=: (optional) the =EDIT_TEMPLATE= setting that a topic inherits being in that state
+   * =printTemplate=: (optional) the =PRINT_TEMPLATE= setting that a topic inherits being in that state
 
 The first node in the list of nodes is the ``default node'' where the process starts. Any document that is under workflow control but has no state assigned to it
 yet is in this state by definition. A node =id= may be marked with an asterisk, e.g. =released*=. This node is the ``approval node'' depicting those nodes that
@@ -63,6 +67,7 @@ An edge in a workflow defines the kind of actions a person may perform from a so
    * =allowed=: (optional) acl controling the set of persons that are allowed to transition the state of the document
    * =enabled=: (optional) a boolean constraint implemented as a TML expression to control if the edge's is allowed to be traversed
    * =notify=: (optional) list of roles that are notified when the edge is transitioned
+   * =mailTemplate=: (optional) name of an email template to be used in a notification, defaults to [[QMPluginNotifyTemplate]]
    * =command=: (optional) list of commands that are executed when this edge is traversed; see the list below for a description of known actions and their parameters
    * =signOff=: (optional) minimum percentage of participants required to transition the state, default to 0%; as long as the sign-off is not reached yet will the document remain in the current state; 
      only when all participants (specified in the ``allowed'' property) performed the same action on the node will the transition be carried out and the document reaches the target state
@@ -76,31 +81,16 @@ A role in a workflow bundles the following properties:
 
 Note that all properties except =id= may contain TML expressions that are expanded in the context of the controlled document. 
 For example the following defines a ``Creator'' role by extracting the the author of the initial revision of a document.
-A role =id= may be marked with an asterisk, e.g. =ResponsiblePersons*=. This role is the ``admin role'' that has got special rights with regards to the workflow.
-I.e. admins may cancel an ongoing parallel approval. Alternatively, the admin role is named ``Admin''. Or any other custom id can be specified in the preference
+A role =id= may be marked with an asterisk. This role is the ``admin role'' that has got special rights with regards to the workflow.
+I.e. admins may cancel an ongoing parallel approval; an admin can switch all transitions without granting explicit permission. 
+By default, the admin role is named ``Admin''. Or any other custom id can be specified in the preference
 setting =QMPLUGIN_ADMIN=.
 
 <verbatim class="tml">
-| *ID* | *Members* | *Description* | *Notify* |
-| Creator | %IF{"istopic '%WEB%.%TOPIC%'" then="$percntQUERY{\"info.author\" rev=\"1\"}$percnt" else="%USERNAME%"}% | %TRANSLATE{"Person that created this topic."}% | |
-| Admin* | JohnDoe | %TRANSLATE{"Persons with admin rights on the workflow."}% |  |
+| *ID* | *Members* | *Description* | 
+| Creator  | %IF{"istopic '%WEB%.%TOPIC%'" then="$percntREVINFO{\"$username\" rev=\"1\"}$percnt" else="%USERNAME%"}% | %TRANSLATE{"Person that created this topic."}% | 
+| Admin* | WorkflowAdminGroup | %TRANSLATE{"People with admin rights on the workflow."}% | 
 </verbatim>
-
----++ Transition Commands
-
-An edge may be annotated with actions in the "Command" column of the edges table. These actions are executed whenever the edge is transitioned. For example a fork and/or copy operation is executed, a preference setting is set.
-There is a fixed set of available commands, that can be extended by other plugins using the [[System.PerlDoc?module=Foswiki::Plugins::QMPlugin#registerCommandHandler_40_36id_44_36type_44_36handler_41][registerCommandHandler()]] API.
-
-| *ID* | *Parameters* | *Description* | *Example* |
-| =copy= | =topic="&lt;targetTopic>"=, =web="&lt;targetWeb>"= | copy a topic to a different location | =copy(web="Public")=, =copy(topic="SomeOtherTopic")=, =copy(topic="%<nop>TOPIC%Published")= | 
-| =deletemeta= | =&lt;name>= | delete named meta data of the current topic | =deletemeta(CustomMeta)= | 
-| =fork= | =suffix="Copy"= | create a copy of the current topic and append =suffix= to its name; then redirect to it | |
-| =merge= | | reverts a previous =fork= operation | |
-| =pref= | =topic="&lt;targetTopic>"=, ="&lt;prefName>"=, =name="&lt;prefName>"=, =value="&lt;..."= | set a preference value in a target topic (default current topic), a preference is removed when assigning the empty string | =pref("token" value="1")=, =pref("token" value="")=, =pref("counter" value="%<nop>CALCULATE{"$EVAL(%<nop>counter{default="0"}%+1)"}%")= |
-| =formfield= | =topic="&lt;targetTopic>"=, ="&lt;fieldName>"=, =name="&lt;fieldName>"=, =value="&lt;..."= | set a formfield in a target topic (default current topic) | =formfield("TopicType" value="%<nop>FORMFIELD{"TopicTitle"}% (published)" topic="%TOPIC%Published")= |
-| =trash= | ="&lt;sourceTopic>=, =topic="&lt;sourceTopic>"= | move a source topic (default current topic) to the trash | =trash(topic="%<nop>TOPIC%Published")= |
-
-Note that multiple commands may be triggered listing them comma-separated in the "Command" column of the edges table.
 
 ---++ Usage
 
@@ -110,7 +100,7 @@ Before you can establish a workflow for a document you need to define the workfl
 ---++ Nodes
 | *ID*      | 
 | created   |
-| inprocess |
+| inprogress |
 | submitted |
 | approved*  |
 | rejected  |
@@ -118,11 +108,11 @@ Before you can establish a workflow for a document you need to define the workfl
 ---++ Edges
 | *From*    | *To*      | 
 | created   | submitted | 
-| inprocess | submitted | 
+| inprogress | submitted | 
 | submitted | approved  | 
 | submitted | rejected  | 
-| approved  | inprocess | 
-| rejected  | inprocess | 
+| approved  | inprogress | 
+| rejected  | inprogress | 
 </verbatim>
 
 In this example no roles are defined, nor any access control on nodes or edges. A full-featured workflow can be outlined in the following example:
@@ -130,33 +120,33 @@ In this example no roles are defined, nor any access control on nodes or edges. 
 <verbatim class="tml">
 ---++ Roles 
 | *ID*     | *Members*                          | *Description* | *Notify* | 
-| Creator  | %IF{"istopic '%WEB%.%TOPIC%'" then="$percntQUERY{\"info.author\" rev=\"1\"}$percnt" else="%USERNAME%"}% | %TRANSLATE{"The person that created this topic."}% | |
+| Creator  | %IF{"istopic '%WEB%.%TOPIC%'" then="$percntREVINFO{\"$username\" rev=\"1\"}$percnt" else="%USERNAME%"}% | %TRANSLATE{"Person that created this topic."}% | |
 | Approver | %FORMFIELD{"ResponsiblePersons"}%  | %TRANSLATE{"People to approve this topic."}% |  |
 | Admin*   | AdminGroup                         | %TRANSLATE{"People with admin rights on the workflow."}% |  |
 
 ---++ Nodes 
-| *ID*       | *Title*              | *Allow Edit* | *Allow View*      | *Message* | 
-| created    | Created              | Creator      | Creator           | %TRANSLATE{"This document has just been created."}% | 
-| inprogress | In Progress          | Creator      | Creator           | %TRANSLATE{"This document is being worked on."}% | 
-| submitted  | Waiting for Approval | Nobody       | Creator, Approver | %BLUE%%TRANSLATE{"This document is waiting for approval."}%%ENDCOLOR% | 
-| approved*  | Approved             | Nobody       |                   | %GREEN%%TRANSLATE{"This document is approved."}%%ENDCOLOR% | 
-| rejected   | Rejected             | Creator      | Creator, Approver | %RED%%TRANSLATE{"Approval for this document has been rejected."}%%ENDCOLOR% | 
+| *ID*       | *Title*              | *Allow Edit* | *Allow View*      | *Message* | *Attributes* | *View Template* | 
+| created    | Created              | Creator      | Creator           | %TRANSLATE{"This document has just been created."}% | fillcolor="#ffb3b2", penwidth=0 | | 
+| inprogress | In Progress          | Creator      | Creator           | %TRANSLATE{"This document is being worked on."}% | | | 
+| submitted  | Waiting for Approval | Nobody       | Creator, Approver | %BLUE%%TRANSLATE{"This document is waiting for approval."}%%ENDCOLOR% | | | 
+| approved*  | Approved             | Nobody       |                   | %GREEN%%TRANSLATE{"This document is approved."}%%ENDCOLOR% | | | 
+| rejected   | Rejected             | Creator      | Creator, Approver | %RED%%TRANSLATE{"Approval for this document has been rejected."}%%ENDCOLOR% | | | 
 
 ---++ Edges 
-| *From*     | *Action*          | *Icon*             | *Title*          | *To*       | *Allowed* | *Notify* | *Enabled* | *Trigger* | *Command* | *Sign Off* | 
-| created    | request approval  | fa-question-circle | Request approval | submitted  | Creator   | Approver | | | | |
-| inprogress | request approval  | fa-question-circle | Request approval | submitted  | Creator   | Approver | | | | |
-| submitted  | approve           | fa-thumbs-o-up     | Approve          | approved   | Approver  | | | | merge | 100% | 
-| submitted  | reject            | fa-thumbs-o-down   | Reject           | rejected   | Approver  | Creator | | | | | 
-| approved   | start revision    | fa-pencil          | Start revision   | inprogress | Approver, Admin | Creator | | | fork | | 
-| rejected   | resume            | fa-pencil          | Resume           | inprogress | Creator   | | | | | |
+| *From*     | *Action*          | *Icon*             | *Title*          | *To*       | *Allowed* | *Notify* | *Enabled* | *Trigger* | *Command* | *Sign Off* | *Attributes* | *Rank* | *Mail Template* |
+| created    | request approval  | fa-question-circle | Request approval | submitted  | Creator   | Approver | | | | | penwidth=3 | | |
+| inprogress | request approval  | fa-question-circle | Request approval | submitted  | Creator   | Approver | | | | | penwidth=3 | | |
+| submitted  | approve           | fa-thumbs-o-up     | Approve          | approved   | Approver  | | | | merge | 100% | penwidth=3 | | |
+| submitted  | reject            | fa-thumbs-o-down   | Reject           | rejected   | Approver  | Creator | | | | | | | |
+| approved   | start revision    | fa-pencil          | Start revision   | inprogress | Approver, Admin | Creator | | | fork | | penwidth=3 | | |
+| rejected   | resume            | fa-pencil          | Resume           | inprogress | Creator   | | | | | | | | |
 </verbatim>
 
 A workflow consists of at least two tables to define nodes and edges. A third table may be present optionally defining roles.
 Note that the properties =ID=, =From=, =Action= and =To= are used internally and must stay constant, whereas the =Title= and =Message= properties may be used
-more freely such as rendering a multi-lingual display label that varies based on the user's language settings, given [[Foswiki:Extensions/MultiLingualPlugin][MultiLingualPlugin]]
+more freely such as rendering a multi-lingual display label that varies based on the user's language settings, given [[https://foswiki.org/Extensions/MultiLingualPlugin][MultiLingualPlugin]]
 is installed.
-The resulting net can be visualized using the =%<nop>QMGRAPH%= macro in case you also installed the [[Foswiki:Extensions/GraphvizPlugin][GraphvizPlugin]].
+The resulting net can be visualized using the =%<nop>QMGRAPH%= macro in case you also installed the [[https://foswiki.org/Extensions/GraphvizPlugin][GraphvizPlugin]].
 
 <img src='%ATTACHURLPATH%/simple-approval-workflow.svg' />
 
@@ -166,25 +156,157 @@ Once this workflow definition is stored in a topic, say =SimpleApprovalWorkflow=
 %QMSTATE{workflow="SimpleApprovalWorkflow"}%
 </verbatim>
 
----++ Custom properties
+---++ Custom Properties
 
-Nodes and edges may have custom properties besides those outlined above. These are defined in additional columns to the roles, nodes or edges table:
+| *ID*      | *Class* | *Foo* | *Bar* |
+| created   | foswikiInfoMessage | | lorem |
+| inprogress | foswikiWarningMessage | 0 | ipsum |
+| submitted | foswikiWarningMessage | $foo | |
+| approved* | foswikiSuccessMessage | %CALCULATE{"$EVAL($foo+1)"}% | |
+| rejected  | foswikiErrorMessage | $foo | %CALCULATE{"$EVAL($foo+5)"}% |
 
----++ Nodes
-| *ID*      | *Class* | 
-| created   | foswikiInfoMessage |
-| inprocess | foswikiWarningMessage |
-| submitted | foswikiWarningMessage |
-| approved* | foswikiSuccessMessage |
-| rejected  | foswikiErrorMessage |
+Nodes and edges may have custom properties besides those outlined above. These are defined in additional columns to the roles, nodes or edges table.
+Custom node properties will be recomputed and stored into the state of a document when entering this node.
 
-These custom properties - in this example "Class" - may be used when rendering a QMSTATE:
+The custom properties "Class", "Foo" and "Bar" may be used when rendering a QMSTATE:
 
 <verbatim class="tml">
-%QMSTATE{format="<div class='$class'>$message</div>"}%
+%QMSTATE{
+  format="<div class='$class'>
+              $message
+              Foo has got the value $foo, Bar is $bar
+          </div>"
+}%
 </verbatim>
 
 In this example messages will be styled using a css class to control the way messages are displayed.
+The values for =$foo= and =$bar= will be updated as the document passes through these nodes. A custom property might
+reference its previous value or reference another one, as shown in =rejected=.
+
+---++ Transition Commands
+
+An edge may be annotated with actions in the "Command" column of the edges table. These actions are executed whenever the edge is transitioned. For example a fork and/or copy operation is executed, a preference setting is set.
+There is a fixed set of available commands, that can be extended by other plugins using the [[System.PerlDoc?module=Foswiki::Plugins::QMPlugin#registerCommandHandler_40_36id_44_36type_44_36handler_41][registerCommandHandler()]] API.
+
+Note that multiple commands may be triggered listing them comma-separated in the "Command" column of the edges table.
+
+---+++ =copy()=
+
+copy a topic to a different location
+
+Parameters:
+
+   * =topic="&lt;targetTopic>"= 
+   * =web="&lt;targetWeb>"= 
+
+Examples:
+
+   * =copy(web="Public")=
+   * =copy(topic="SomeOtherTopic")=
+   * =copy(topic="%<nop>TOPIC%Published")=
+
+---+++ =createTopic()=
+
+Parameters:
+
+   * =topic="&lt;newTopic>"= or ="&lt;newTopic"=: topic name to be created, can be a full web.topic
+   * =web="&lt;newWeb>=: web to create the topic in, defaults to the current state's web
+   * =overwrite="on/off"=: boolean switch to overwrite any existing topic, defaults to off thus warning when the same topic is about to be created again
+   * =template="&lt;templateTopic>"=: topic name of a template topic to be used
+   * =form="&lt;formTopic>"=: topic name of a template topic to be used
+   * =parent="&lt;parentTopic>"=
+   * =redirect="on/off"=: boolean switch to redirect to the newly created topic
+   * =redirectto="..."=: web.topic name to redirect to after the topic has been created, can be a full http url as well
+   * =&lt;fieldName="..."= value for the given field
+
+---+++ =createWeb()=
+
+%IF{"context WebCreatorPluginEnabled"
+   then="see [[%SYSTEMWEB%.WebCreatorPlugin#QMPlugin_integration][WebCreatorPlugin]]"
+   else="%RED%Only available if <nop>WebCreatorPlugin is installed%ENDCOLOR%"
+}%
+
+---+++ =deleteMeta()=
+
+delete named meta data of the current topic 
+
+Parameters: 
+
+   * =&lt;name>= 
+
+Examples:
+
+   * =deletemeta(<nop>CustomMeta)=
+
+---+++ =fork()=
+
+create a copy of the current topic and append =suffix= to its name; then redirect to it 
+
+Parameters: 
+
+   * =suffix="Copy"= 
+
+---+++ =formfield()=
+
+set a formfield in a target topic (default current topic) 
+
+Parameters: 
+
+   * =topic="&lt;targetTopic>"= 
+   * ="&lt;fieldName>"= 
+   * =name="&lt;fieldName>"= 
+   * =value="&lt;...>"=
+
+Examples:
+
+   * =formfield("TopicTitle" value="%<nop>FORMFIELD{"TopicTitle"}% (published)" topic="%TOPIC%Published")=
+
+---+++ =merge()=
+
+reverts a previous =fork= operation 
+
+---+++ =move()= 
+
+move the current or specified topic 
+
+Parameters:
+
+   * =topic="&lt;topic>"= (default current topic)
+   * =to="&lt;web-topic>"= target web-topic
+   * =totopic="&lt;topic>"= target topic
+   * =toweb="&lt;web>"= target web
+   * =redirect="&lt;web-topic>"= where to redirect to after the topic has been renamed
+   * =overwrite="on/off"= boolean switch to overwrite a topic already existing, (default off)
+
+---+++ =pref()= 
+
+set a preference value in a target topic (default current topic), a preference is removed when assigning the empty string 
+
+Parameters: 
+
+   * =topic="&lt;targetTopic>"= 
+   * ="&lt;prefName>"= 
+   * =name="&lt;prefName>"= 
+   * =value="&lt;...>"= 
+
+Examples:
+
+   * =pref("token" value="1")=
+   * =pref("token" value="")=
+   * =pref("counter" value="%<nop>CALCULATE{"$EVAL(%<nop>counter{default="0"}%+1)"}%")=
+
+---+++ =trash()=
+
+move a source topic (default current topic) to the trash 
+
+Parameters:
+
+   * ="&lt;sourceTopic>= 
+   * =topic="&lt;sourceTopic>"=
+
+Examples: 
+
+   * =trash(topic="%<nop>TOPIC%Published")=
 
 ---++ QMSTATE
 
@@ -194,6 +316,7 @@ This macro renders information about a topic in a specific workflow state.
 | ="..."= or =topic= | topic to render the workflow state for | current topic |
 | =rev= | version of the topic | =rev= urlparam if present, otherwise latest revision |
 | =ignoreerror= | boolean switch to disable any possible error message that might occur | =off= |
+| =warn= | alernative to =ignoreerror= | =on= |
 | =format= | format string | value of =template= |
 | =template= | template being used to render the workflow state; this will only be used when no manual =format= string has been specified | =qm::state= |
 | =workflow= | workflow definition | current topic's workflow |
@@ -208,10 +331,13 @@ This macro renders information about a topic in a specific workflow state.
 The =format= string as well as the =template= content may use the following variables:
 
    * =$action=: last action that lead to the current state
+   * =$actionTitle=: title of the last action that lead to the current state
    * =$actions=: list of possible actions of outgoing edges from the given state
    * =$edges=: list of possible transitions from the given state
+   * =$nodes=: list of possible target nodes from the given state to transition to
    * =$adminRole=: id of the admin role 
-   * =$approval=: id of node flag as being the approval node
+   * =$approvalID=: id of node flag as being the approval node
+   * =$approvalIDs=: ids of nodes flag as being the approval node
    * =$approvalRev=: most recently approved revision
    * =$approvalTime=: time in epoch seconds of the most recent approval
    * =$approvalDuration=: time since since the last approval
@@ -237,7 +363,6 @@ The =format= string as well as the =template= content may use the following vari
    * =$pendingAction=: action that has been already performed by other reviewers of a parallel approval
    * =$pendingReviewers=: list of users that still require to review the state change in a parallel approval
    * =$possibleReviewers=: list of all users that may perform an action on any outgoing edge from the current state on
-   * =$prevTitle=: title of the node that lead to the current workflow state
    * =$previousState=, =$previousNode=: id of the node that lead to the current workflow state
    * =$rev=: revision of the topic that the current workflow state is attached to
    * =$reviewFrom=: state that has been reviewed
@@ -248,6 +373,8 @@ The =format= string as well as the =template= content may use the following vari
    * =$roles=: list of available roles in a workflow definition
    * =$signOff=: percentage ratio of number of users that already reviewed the current state change 
    * =$topic=: topic name 
+   * =$to=: node id to which the latgest review is targeting to
+   * =$toTitle=: title of the node to which the latest review is targeting to
    * =$web=: web name 
    * =$workflow=: topic of the workflow definition
 
@@ -266,6 +393,8 @@ This macro renders a button to pop up the workflow dialog.
 | =format= | format string to render the button | |
 | =template= | template being used when no manual =format= string has been specified | =qm::button= |
 | =class= | css class to add to the button, in addition to =foswikiDialogLink=, =qmChangeStateButton=; if the current state does not allow any followup action for the current user will the button be disabled using the =jqButtonDisabled= class | |
+| =ignoreerror= | boolean switch to disable any possible error message that might occur | =off= |
+| =warn= | alernative to =ignoreerror= | =on= |
 
 The =format= string as well as the =template= content may use the following variables:
 
@@ -277,6 +406,35 @@ The =format= string as well as the =template= content may use the following vari
    * =$web=: web name 
    * =$workflow=: topic of the workflow definition
 
+---++ QMNET
+
+This macro renders information about a specific workflow net. Some of this information is already available via %QMSTATE.
+The %QMNET macro may however be used to display information about a workflow independent of a topic being in a specific state
+in that network. It returns all available information about the workflow and does not take the current state and permissions under consideration.
+
+| *Parameters* | *Description* | *Default* |
+| ="..."= or =workflow= | the workflow net to display the information of | |
+| =topic= | the topic that is in a specific workflow which to display the information for | |
+| =type= | specify the type of information to display: nodes, edges or roles | nodes |
+| =header= | header string prepended to the output if any thing was found |  |
+| =format= | format string | =$id= |
+| =separator= | separator between formatted items | |
+| =footer= | footer string appended to the output if anything was found |  |
+| =include= | regular expressions network items must match to be displayed | |
+| =exclude= | regular expressions network items must _not_ match to be displayed | |
+| =skip= | skip this number of items in the list | 0 |
+| =limit= | limit the number of items to be displayed | |
+| =from= | node id | |
+| =to= | node id  | |
+| =action= | action id | |
+| =sort= | sorting of found items; can be any property of a node/edge/role such as id, author, comment, date, etc, as well as =on= (by index) and =off= (as ordered in table) | =off= |
+
+The =format= string may use variables depending on the =type= of information displayed. See %QMNODE, %QMROLE, %QMEDGE for details. 
+Additional variables are:
+
+   * =$count=: number of items in the list
+   * =$workflow=: the topic defining the workflow
+
 ---++ QMNODE
 
 This macro renders information about one specific node in a workflow.
@@ -287,6 +445,7 @@ This macro renders information about one specific node in a workflow.
 | =rev= | version of the topic | =rev= urlparam if present, otherwise latest revision |
 | =format= | format string | =$id, $title, $message= |
 | =ignoreerror= | boolean switch to disable any possible error message that might occur | =off= |
+| =warn= | alernative to =ignoreerror= | =on= |
 | =workflow= | workflow definition | current topic's workflow |
 
 The =format= string as well as the =template= content may use the following variables:
@@ -314,6 +473,7 @@ This macro renders information about a specific edge in a workflow.
 | =action= | action carried out while traversing the edge | |
 | =to= | target node of the edge | |
 | =ignoreerror= | boolean switch to disable any possible error message that might occur | =off= |
+| =warn= | alernative to =ignoreerror= | =on= |
 | =format= | format string | =$from, $action, $to= | 
 | =workflow= | workflow definition | current topic's workflow |
 
@@ -341,6 +501,7 @@ This macro renders information about a specific role in a workflow.
 | =rev= | version of the topic | =rev= urlparam if present, otherwise latest revision |
 | =format= | format string | =$members= |
 | =ignoreerror= | boolean switch to disable any possible error message that might occur | =off= |
+| =warn= | alernative to =ignoreerror= | =on= |
 | =workflow= | workflow definition | current topic's workflow |
 
 The =format= string as well as the =template= content may use the following variables:
@@ -368,7 +529,7 @@ and renders their state information. Each state information per revision is form
 | =header= | header string prepended to the output if any thing was found | value of the =qm::history::header= template |
 | =format= | format string for each entry in the history | value of the =qm::history::format= template |
 | =separator= | separator between formatted items | |
-| =footer= | footer string appended to the output if anything was found | valoe of the =qm::history::footer= template |
+| =footer= | footer string appended to the output if anything was found | value of the =qm::history::footer= template |
 | =sort=, =order= | sorting of found records; can be  any property of a state: id, author, comment, date, etc | =date= |
 | =reverse= | boolean flag to inverse the results | =off= |
 | =skip= | number of records to skip in the loop | =0= |
@@ -378,6 +539,7 @@ and renders their state information. Each state information per revision is form
 | =from_date= | only return records later than this date |  |
 | =to_date= | only return records up to this date |  |
 | =ignoreerror= | boolean switch to disable any possible error message that might occur | =off= |
+| =warn= | alernative to =ignoreerror= | =on= |
 
 Each entry in the history displays the state the topic was in in this revision. The =format= string may thus use the same variables as in =%QMSTATE=. In addition
 =$index=, expands to the index in the list of history entries.
@@ -391,17 +553,18 @@ There are a couple of [[#Helper_Functions][helper functions]] that might be call
 
 ---++ QMGRAPH
 
-With the help of the [[Foswiki:Extensions/GraphvizPlugin][GraphvizPlugin]] this macro renders the flow chart representing the given workflow.
+With the help of the [[https://foswiki.org/Extensions/GraphvizPlugin][GraphvizPlugin]] this macro renders the flow chart representing the given workflow.
 
 | *Parameter* | *Description* | *Default* |
 | ="..."= or =topic= | | current topic |
 | =ignoreerror= | boolean switch to disable any possible error message that might occur | =off= |
+| =warn= | alernative to =ignoreerror= | =on= |
 | =workflow= | workflow definition | current topic's workflow |
 | =template= | template being used when to render the dot graph | value of the =qm::graph= template |
 
 ---++ Helper Functions
 
-The format strings of =%QMEDGE=, =%QMNODE=, =%QMROLE=, =%QMSTATE= and =%QHISTORY= might also use the following helper functions.
+The format strings of =%QMEDGE=, =%QMNODE=, =%QMROLE=, =%QMSTATE= and =%QMHISTORY= might also use the following helper functions.
 
    * =$emails(&lt;list of user(s)>)=: get all emails of all given user strings
    * =$formatDateTime(&lt;epoch>)=: format datetime of epoch seconds
@@ -411,33 +574,54 @@ The format strings of =%QMEDGE=, =%QMNODE=, =%QMROLE=, =%QMSTATE= and =%QHISTORY
    * =$userName(&lt;list of user(s)>)=: get usernames of all given user strings
    * =$wikiName(&lt;list of user(s)>)=: get wikinames of all given user strings
    * =$wikiUserName(&lt;list of user(s)>)=: get wikiusernames of all given user strings
+   * =$wikiUserTitle(&lt;list of user(s)>)=: get wiki user title of all given user strings
+
+---++ Email Notifications
+
+Every time an edge is transitioned and there is a group of people to be notified about it an email notification is send out.
+Note that the person triggering the transition is excluded from the list of people to notify by default. You may re-enable
+notifying yourself by setting the preference setting =QMPLUGIN_NOTIFYSELF= to =on=.
+
+The actual template for the email is either the one specified in the "Mail Template" column of the edge or the default [[QMPluginNotifyTemplate]]
+part of the plugin. 
+
+There are a few ways to customize this template by either creating a skin overlay or specify a template per transition of a
+workflow. For example, prefix a =myskin= prefix to the SKIN preference setting and then create a =MySkinQMPluginNotifyTemplate=.
+This topic then includes the original template using
+
+%TMPL:INCLUDE{"QMPluginNotify"}%
+
+%TMPL:DEF{"qm::notify::header::subject"}%Subject: [WIKI-NOTIFICATION] - %TMPL::PREV%%TMPL:END%
+
+and the redefine parts of the template structure to your needs, such as customizing the Subject line of the email.
+The notification tempalte has got a set of definitions which may be used to customize the message going out:
+
+   * =qm::notify=: entry point of the template, everything else hangs off this definition
+   * =qm::notify::init=: an optional init stage while creating the email, empty by default
+   * =qm::notify::header=: email header composed by the following definitions
+      * =qm::notify::header::from=
+      * =qm::notify::header::to=
+      * =qm::notify::header::subject=
+      * =qm::notify::header::priority=
+      * =qm::notify::header::misc=
+   * =qm::notify::body=: the email body is split up into two parts
+      * =qm::notify::body::text::header=: mime separator
+      * =qm::notify::body::text= email in text format
+      * =qm::notify::body::html::header=: mime separator
+      * =qm::notify::body::html= email in html format
+   * =qm::notify::body::text= contains a standard text as well sub-definitions:
+      * =qm::notify::greeting::text=
+      * =qm::notify::closing::text=
+      * =qm::notify::body::reviews=: this is shared in both text and html versions
+   * =qm::notify::body::html= is structured similarly with
+      * =qm::notify::greeting::html=
+      * =qm::notify::closing::html=
+      * =qm::notify::body::reviews=: this is shared in both text and html version
+
+Note that any of those definitions can be (re-)defined accordingly, for example 
+customizing the closing message which defaults to a "%TRANSLATE{"Best Regards, Your Wiki Team"}%".
 
 ---++ <nop>DataForms Integration 
-
----+++ =qmworkflow= formfield
-
-Adding a workflow to a topic is done best using a [[%SYSTEMWEB%.DataForms][DataForm]] with a =qmworkflow= formfield. This lets you select
-which workflow should be used for the topic.
-
-<verbatim>
-| *Name:*   | *Type:*    | *Size:*  | *Values:*                 | *Description:*           | *Attributes:*  | *Default:* |
-| Workflow  | qmworkflow | 30       | web="..." TopicType="..." | workflow for this topic  |                |            |
-...
-</verbatim>
-
-A =qmworkflow= formfield is a type of =topic= formfield (see [[%SYSTEMWEB%.MoreFormfieldsPlugin]]). It is a reference to a topic of type =WorkflowDefinition=.
-A different =TopicType= may be specified using appropriate parameter in the =Values= column. The optional =web= parameter specifies the web where
-to search for workflow definitions.
-
-If you don't want your users to change a predefinied workflow use the =Default= column and set the =hidden= flag in the =Attributes= column.
-Note if you are using [[Foswiki:Extensions.WikiWorkbenchContrib][WikiWorkbenchContrib]] you should also enable the =create= flag so that
-the topic gets its workflow as part of the topic creator dialog.
-
-<verbatim>
-| *Name:*   | *Type:*    | *Size:*  | *Values:* | *Description:*   | *Attributes:*  | *Default:*     |
-| Workflow  | qmworkflow | 30       |           | |                | c,h            | <web-topic> |
-...
-</verbatim>
 
 ---+++ =qmstate= formfield
 
@@ -447,16 +631,33 @@ of the edit-save cycle. This can be achieved with a [[%SYSTEMWEB%.DataForms][Dat
 <verbatim>
 | *Name:*| *Type:* | *Size:* | *Values:*      | *Description:*          | *Attributes:* | *Default:* |
 | State  | qmstate | 1       | workflow="..." | current workflow state  |               |            |
-...
 </verbatim>
 
 This will add a special radiobox interface to the editor that displays optional next actions on the currently being edited topic. When
 no outgoing edges are activated there will be no option to chose from either. Only _one_ formfield of type =qmstate= is allowed
 per topic. The =Valuse= column is used to parametrize the formfield, i.e. to specify the workflow to be used for this topic.
 
+---+++ =qmworkflow= formfield
+
+The =qmworkflow= formfield lets you select the workflow to be used.
+If you don't want your users to change a predefinied workflow use a =qmstate= formfield and hard-code the workflow in the "Values" column. See above.
+A =qmworkflow= formfield is more flexible in that sense. Extra caution is required when changing a topic's workflow. When the current state as defined
+in the old workflow doesn't exist in the nodes table of new workflow will it require a restart at the starting node of the new workflow. If however
+the current state id is known to the target workflow will the new workflow continue at that point of the network. Or put differrently, workflows 
+can be exchanged in a sensible way when they share a state with the same id defined in both.
+
+<verbatim>
+| *Name:*   | *Type:*    | *Size:*  | *Values:*                 | *Description:*           | *Attributes:*  | *Default:* |
+| Workflow  | qmworkflow | 30       | web="..." TopicType="..." | workflow for this topic  |                |            |
+</verbatim>
+
+A =qmworkflow= formfield is a type of =topic= formfield (see [[%SYSTEMWEB%.MoreFormfieldsPlugin]]). It is a reference to a topic of type =WorkflowDefinition=.
+A different =TopicType= may be specified using appropriate parameter in the =Values= column. The optional =web= parameter specifies the web where
+to search for workflow definitions.
+
 ---++ !WikiWorkbench Integration
 
-The [[Foswiki:Extensions.ClassificationPlugin]] comes with a set of predefinied !TopicTypes that eases creating topics of type !WorkflowDefinition
+The [[https://foswiki.org/Extensions/ClassificationPlugin][ClassificationPlugin]] comes with a set of predefinied !TopicTypes that eases creating topics of type !WorkflowDefinition
 as well as !ControlledTopics (topics that have a workflow attached to it) as well as a set of simple workflows to start with. Getting started
 with workflows is achieved by deploying the !TopicTypes:
 
@@ -478,7 +679,8 @@ See [[QMPluginPerlAPI]]
 ---++ Change History
 
 %TABLE{columnwidths="7em" tablewidth="100%"}%
-| 12 Feb 2021 | initial release |
+|  28 Jan 2025 | first release |
+|  12 Feb 2021 | initial release |
 
 %META:FORM{name="PackageForm"}%
 %META:FIELD{name="Author" title="Author" value="Michael Daum"}%
@@ -486,8 +688,12 @@ See [[QMPluginPerlAPI]]
 %META:FIELD{name="Release" title="Release" value="%25$RELEASE%25"}%
 %META:FIELD{name="Description" title="Description" value="%25$SHORTDESCRIPTION%25"}%
 %META:FIELD{name="Repository" title="Repository" value="https://github.com/foswiki/%25TOPIC%25"}%
-%META:FIELD{name="Copyright" title="Copyright" value="2019-2021 Michael Daum"}%
+%META:FIELD{name="Copyright" title="Copyright" value="2019-2025 Michael Daum"}%
 %META:FIELD{name="License" title="License" value="GPL ([[http://www.gnu.org/copyleft/gpl.html][GNU General Public License]])"}%
 %META:FIELD{name="Home" title="Home" value="https://foswiki.org/Extensions/%25TOPIC%25"}%
 %META:FIELD{name="Support" title="Support" value="https://foswiki.org/Support/%25TOPIC%25"}%
-%META:FILEATTACHMENT{name="simple-approval-workflow.svg" attachment="simple-approval-workflow.svg" attr="" comment="" date="1572368059" size="7314" user="ProjectContributor" version="1"}%
+%META:FILEATTACHMENT{name="simple-approval-workflow.svg" attachment="simple-approval-workflow.svg" attr="" comment="" date="1738061533" size="6565" user="ProjectContributor" version="1"}%
+%META:PREFERENCE{name="ALLOWTOPICAPPROVE" title="ALLOWTOPICAPPROVE" type="Set" value="MichaelDaum"}%
+%META:PREFERENCE{name="ALLOWTOPICCHANGE" title="ALLOWTOPICCHANGE" type="Set" value="MichaelDaum"}%
+%META:PREFERENCE{name="ALLOWTOPICVIEW" title="ALLOWTOPICVIEW" type="Set" value="MichaelDaum"}%
+%META:QMSTATE{author="MichaelDaum" changed="1" date="1701347710" id="created" workflow="System.SimpleApprovalWorkflow"}%

@@ -1,6 +1,6 @@
 # Plugin for Foswiki - The Free and Open Source Wiki, https://foswiki.org/
 #
-# QMPlugin is Copyright (C) 2019-2021 Michael Daum http://michaeldaumconsulting.com
+# QMPlugin is Copyright (C) 2019-2025 Michael Daum http://michaeldaumconsulting.com
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -155,7 +155,10 @@ expand the given value in the context of a state this object is in
 sub expandValue {
   my ($this, $val) = @_;
 
-  my $state = $this->getNet->getState;
+  my $net = $this->getNet();
+  return $val unless defined $net;
+
+  my $state = $net->getState;
   $val = $state->expandValue($val) if $state;
 
   return $val;
@@ -202,8 +205,7 @@ sub index {
   my ($this, $val) = @_;
 
   $this->{_index} = $val if defined $val;
-
-  return $this->{_index};
+  return $this->prop("index") // $this->{_index};
 }
 
 =begin TML
@@ -227,6 +229,26 @@ sub stringify {
 
 =begin TML
 
+---++ ObjectMethod asJson($state)
+
+returns a json object representing this edge
+
+=cut
+
+sub asJson {
+  my ($this) = @_;
+
+  my $json = {};
+
+  foreach my $key (sort $this->props) {
+    $json->{$key} = $this->renderProp($key);
+  }
+  
+  return $json;
+}
+
+=begin TML
+
 ---++ ObjectMethod getWebTopic() -> ($web, $topic, $rev)
 
 returns the web, topic and revision of the current state in which this
@@ -238,10 +260,12 @@ sub getWebTopic {
   my $this = shift;
 
   my $state = $this->getNet->getState;
+  return unless $state;
 
   return ($state->getWeb(), $state->getTopic, $state->getRevision()) if $state;
   return ('', '', '');
 }
+
 
 =begin TML
 
@@ -261,25 +285,37 @@ sub render {
   my $propRegex = join("|", $this->props);
   $params //= {};
 
-  $result =~ s/\$($propRegex)\b/$this->_renderProp($params, $1)/ge;
+  $result =~ s/\$($propRegex)\b/$this->renderProp($1, $params)/ge;
 
   my ($web, $topic, $rev) = $this->getWebTopic();
 
   $result =~ s/\$web\b/$web/g;
   $result =~ s/\$topic\b/$topic/g;
   $result =~ s/\$rev\b/$rev/g;
+  $result =~ s/\$index\b/$this->{_index}/g;
 
   return $this->expandHelpers($result);
 }
 
-sub _renderProp {
-  my ($this, $params, $key) = @_;
+=begin TML
 
-  my $val = $this->prop($key); 
-  $val = $params->{$key} unless defined $val && $val ne ""; 
+---++ ObjectMethod renderProp($propName, $params) 
+
+returns a _rendered_ version of the given property.
+in addition a "title" property will be translated.
+
+=cut
+
+sub renderProp {
+  my ($this, $propName, $params) = @_;
+
+  $params //= {};
+
+  my $val = $this->prop($propName); 
+  $val = $params->{$propName} unless defined $val && $val ne ""; 
   $val = $this->expandValue($val); 
   
-  return $key eq 'title' ? $this->translate($val) : $val 
+  return $propName eq 'title' ? $this->translate($val) : $val 
 }
 
 =begin TML
@@ -296,6 +332,7 @@ sub expandHelpers {
   $result =~ s/\$formatTime\((\d+?)(?:, *(.*?))?\)/$this->_formatTime($1, $2)/ge;
   $result =~ s/\$formatDateTime\((\d+?)\)/$this->_formatTime($1, $Foswiki::cfg{DateManipPlugin}{DefaultDateTimeFormat} || $Foswiki::cfg{DefaultDateFormat}.' - $hour:$min')/ge;
   $result =~ s/\$(?:wikiUserName|wikiusername)(?:\((.*?)\))?/$this->_userinfo('link', $1)/ge;
+  $result =~ s/\$(?:wikiUserTitle|wikiusertitle)(?:\((.*?)\))?/$this->_userinfo('displayName', $1)/ge;
   $result =~ s/\$(?:wikiName|wikiname)(?:\((.*?)\))?/$this->_userinfo('wikiName', $1)/ge;
   $result =~ s/\$(?:userName|username)(?:\((.*?)\))?/$this->_userinfo('userName', $1)/ge;
   $result =~ s/\$emails?(?:\((.*?)\))?/$this->_userinfo('email', $1)/ge;
@@ -401,14 +438,14 @@ checks the type of access for the given user
 sub hasAccess {
   my ($this, $type, $user) = @_;
 
-  my $allowed = $this->expandValue($this->prop($type));
-  return $this->_isInList($allowed, $user);
+  return 1 if $this->getNet->isAdmin($user);
+  my $list = $this->expandValue($this->prop($type));
+  return $this->_isInList($list, $user);
 }
 
 sub _isInList {
   my ($this, $list, $user) = @_;
 
-  #print STDERR "called _isInList($list, $user)\n";;
 
   return 0 unless defined $list;
 
@@ -419,7 +456,6 @@ sub _isInList {
   return 0 if $list =~ /^nobody$/i;
 
   $user ||= $this->getCore->getSelf();
-  #return 1 if Foswiki::Func::isAnAdmin($user);
 
   # get role members
   my @list = ();
@@ -433,9 +469,9 @@ sub _isInList {
     } 
 
     # user
-    my $user = $this->getCore->getUser($id);
-    if (defined $user) {
-      push @list, $user;
+    my $someUser = $this->getCore->getUser($id);
+    if (defined $someUser) {
+      push @list, $someUser;
       next;
     }
 
@@ -471,4 +507,4 @@ sub writeDebug {
   print STDERR ref($this) . " - $msg\n";
 }
 
-1
+1;

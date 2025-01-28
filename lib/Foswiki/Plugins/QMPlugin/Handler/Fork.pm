@@ -1,6 +1,6 @@
 # Plugin for Foswiki - The Free and Open Source Wiki, https://foswiki.org/
 #
-# QMPlugin is Copyright (C) 2019-2021 Michael Daum http://michaeldaumconsulting.com
+# QMPlugin is Copyright (C) 2019-2025 Michael Daum http://michaeldaumconsulting.com
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -21,17 +21,15 @@ use warnings;
 use Error qw(:try);
 use Foswiki::Func ();
 use Foswiki::Plugins::QMPlugin();
-use Foswiki::Plugins::QMPlugin::Redirect();
-use Foswiki::Plugins::QMPlugin::Utils;
+use Foswiki::Plugins::QMPlugin::Utils qw(:all);
 
 use constant TRACE => 0; # toggle me
 
 sub beforeSaveHandler {
-  my $command = shift;
+  my ($command, $state) = @_;
 
   _writeDebug("called beforeSaveHandler()");
 
-  my $state = $command->getSource->getNet->getState();
   my $params = $command->getParams();
   my $web = $state->getWeb();
   my $topic = $state->getTopic();
@@ -69,8 +67,7 @@ sub afterSaveHandler {
   copyAttachments($origMeta, $meta);
 
   _writeDebug("redirecting to $web.$topic");
-
-  throw Foswiki::Plugins::QMPlugin::Redirect(Foswiki::Func::getScriptUrlPath($web, $topic, "view"));
+  $state->getCore->redirectUrl(Foswiki::Func::getScriptUrlPath($web, $topic, "view"));
 }
 
 sub _writeDebug {

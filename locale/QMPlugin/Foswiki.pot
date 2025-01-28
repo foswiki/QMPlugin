@@ -16,220 +16,219 @@ msgstr ""
 "Content-Type: text/plain; charset=CHARSET\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-#: templates/qmplugin.tmpl:1 templates/qmplugin.tmpl:15
+#: templates/qmplugin.tmpl:1 templates/qmplugin.tmpl:18
 msgid "$text"
 msgstr ""
 
-#: templates/qmplugin.tmpl:30
+#: data/System/QMPluginNotifyTemplate.txt:55
+#: data/System/QMPluginNotifyTemplate.txt:76
+msgid "%qm_actionTitle%"
+msgstr ""
+
+#: data/System/QMPluginNotifyTemplate.txt:22
+#: data/System/QMPluginNotifyTemplate.txt:56
+#: data/System/QMPluginNotifyTemplate.txt:77
+#: data/System/QMPluginReminderTemplate.txt:5
+msgid "%qm_toNodeTitle%"
+msgstr ""
+
+#: data/System/QMPluginNotifyTemplate.txt:55
+#: data/System/QMPluginNotifyTemplate.txt:76 templates/qmplugin.tmpl:33
 msgid "Action"
 msgstr ""
 
-#: data/System/QMPlugin.txt:143
+#: data/System/QMPlugin.txt:133
 msgid "Approval for this document has been rejected."
 msgstr ""
 
-#: data/System/QMPlugin.txt:142
-msgid "Approved"
-msgstr ""
-
-#: templates/qmplugin.tmpl:183
-msgid "Approver"
-msgstr ""
-
-#: templates/qmplugin.tmpl:205
+#: templates/qmplugin.tmpl:201
 msgid "Are you sure that you to send a reminder to %1?"
 msgstr ""
 
-#: templates/qmplugin.tmpl:225
+#: templates/qmplugin.tmpl:223
 msgid "Are you sure that you want to cancel the current transition?"
 msgstr ""
 
-#: templates/qmplugin.tmpl:29
-msgid "Author"
+#: data/System/QMPluginNotifyTemplate.txt:92
+#: data/System/QMPluginNotifyTemplate.txt:96
+msgid "Best Regards, %1Your Wiki Team."
 msgstr ""
 
-#: templates/qmpluginnotify.tmpl:52 templates/qmpluginreminder.tmpl:12
-msgid "Best Regards, Your Wiki."
+#: data/System/QMPlugin.txt:622
+msgid "Best Regards, Your Wiki Team"
 msgstr ""
 
-#: templates/qmplugin.tmpl:214 templates/qmplugin.tmpl:77
+#: templates/qmplugin.tmpl:110 templates/qmplugin.tmpl:210
 msgid "Cancel"
 msgstr ""
 
-#: templates/qmplugin.tmpl:218 templates/qmplugin.tmpl:219
+#: templates/qmplugin.tmpl:216 templates/qmplugin.tmpl:217
 msgid "Cancel Transition"
 msgstr ""
 
-#: templates/qmplugin.tmpl:91
+#: templates/qmplugin.tmpl:4 templates/qmplugin.tmpl:64
 msgid "Change State"
 msgstr ""
 
-#: templates/qmplugin.tmpl:124 templates/qmpluginnotify.tmpl:48
+#: templates/qmplugin.tmpl:116 templates/qmplugin.tmpl:35
 msgid "Comment"
 msgstr ""
 
-#: templates/qmplugin.tmpl:188 templates/qmplugin.tmpl:31
+#: data/System/QMPluginNotifyTemplate.txt:100
+#: data/System/QMPluginNotifyTemplate.txt:107 templates/qmplugin.tmpl:183
 msgid "Comments"
 msgstr ""
 
-#: data/System/QMPlugin.txt:139
-msgid "Created"
-msgstr ""
-
-#: templates/qmplugin.tmpl:33
+#: templates/qmplugin.tmpl:36
 msgid "Date"
 msgstr ""
 
-#: templates/qmplugin.tmpl:32
-msgid "Duration"
+#: data/System/QMPluginNotifyTemplate.txt:57
+#: data/System/QMPluginNotifyTemplate.txt:78 templates/qmplugin.tmpl:32
+msgid "Editor"
 msgstr ""
 
-#: templates/qmpluginnotify.tmpl:38 templates/qmpluginreminder.tmpl:4
+#: data/System/QMPluginNotifyTemplate.txt:91
+#: data/System/QMPluginNotifyTemplate.txt:95
 msgid "Hello"
 msgstr ""
 
-#: data/System/QMPlugin.txt:140
-msgid "In Progress"
+#: data/System/QMPluginNotifyTemplate.txt:56
+#: data/System/QMPluginNotifyTemplate.txt:77
+msgid "New Status"
 msgstr ""
 
-#: templates/qmplugin.tmpl:228
+#: templates/qmplugin.tmpl:226
 msgid "No, thanks"
 msgstr ""
 
-#: templates/qmpluginnotify.tmpl:31
-msgid "Notification for %1"
+#: data/System/QMPlugin.txt:124
+msgid "People to approve this topic."
 msgstr ""
 
-#: data/System/QMPlugin.txt:133 data/System/QMPlugin.txt:85
+#: data/System/QMPlugin.txt:125 data/System/QMPlugin.txt:92
+msgid "People with admin rights on the workflow."
+msgstr ""
+
+#: data/System/QMPlugin.txt:123 data/System/QMPlugin.txt:91
 msgid "Person that created this topic."
 msgstr ""
 
-#: data/System/QMPlugin.txt:134
-msgid "Persons that are supposed to approve this topic."
-msgstr ""
-
-#: data/System/QMPlugin.txt:135 data/System/QMPlugin.txt:86
-msgid "Persons with admin rights on the workflow."
-msgstr ""
-
-#: templates/qmpluginnotify.tmpl:50 templates/qmpluginreminder.tmpl:10
+#: data/System/QMPluginNotifyTemplate.txt:60
+#: data/System/QMPluginNotifyTemplate.txt:84
+#: data/System/QMPluginReminderTemplate.txt:14
+#: data/System/QMPluginReminderTemplate.txt:32
 msgid "Please review the topic at %1."
 msgstr ""
 
-#: data/System/QMPlugin.txt:143
-msgid "Rejected"
+#: lib/Foswiki/Plugins/QMPlugin/Net.pm:559
+msgid "Restart workflow"
 msgstr ""
 
-#: templates/qmplugin.tmpl:175
+#: templates/qmplugin.tmpl:170
 msgid "Reviewed by"
 msgstr ""
 
-#: templates/qmplugin.tmpl:196 templates/qmplugin.tmpl:197
+#: templates/qmplugin.tmpl:191 templates/qmplugin.tmpl:193
 msgid "Send reminder"
 msgstr ""
 
-#: templates/qmplugin.tmpl:169
+#: templates/qmplugin.tmpl:164
 msgid "Sign-off"
 msgstr ""
 
-#: templates/qmplugin.tmpl:164
+#: templates/qmplugin.tmpl:157 templates/qmplugin.tmpl:34
 msgid "Status"
 msgstr ""
 
-#: templates/qmplugin.tmpl:213 templates/qmplugin.tmpl:76
+#: templates/qmplugin.tmpl:109 templates/qmplugin.tmpl:209
 msgid "Submit"
 msgstr ""
 
-#: data/System/QMPlugin.txt:139
+#: data/System/QMPlugin.txt:129
 msgid "This document has just been created."
 msgstr ""
 
-#: data/System/QMPlugin.txt:142
+#: data/System/QMPlugin.txt:132
 msgid "This document is approved."
 msgstr ""
 
-#: data/System/QMPlugin.txt:140
+#: data/System/QMPlugin.txt:130
 msgid "This document is being worked on."
 msgstr ""
 
-#: data/System/QMPlugin.txt:141
+#: data/System/QMPlugin.txt:131
 msgid "This document is waiting for approval."
 msgstr ""
 
-#: templates/qmplugin.tmpl:133
+#: templates/qmplugin.tmpl:126
 msgid ""
 "This topic is currently [[%1][being worked on]]. However it remains valid "
 "until this process has finished."
 msgstr ""
 
-#: templates/qmplugin.tmpl:129
+#: templates/qmplugin.tmpl:122
 msgid ""
 "This topic is currently being worked on. The [[%1][original version]] "
 "remains valid until this process has finished."
 msgstr ""
 
-#: lib/Foswiki/Plugins/QMPlugin/Net.pm:439
+#: data/System/QMPluginNotifyTemplate.txt:54
+#: data/System/QMPluginNotifyTemplate.txt:75
+msgid "Topic"
+msgstr ""
+
+#: lib/Foswiki/Plugins/QMPlugin/Net.pm:549
 msgid "Unknown"
 msgstr ""
 
-#: templates/qmplugin.tmpl:28
+#: templates/qmplugin.tmpl:31
 msgid "Vers"
 msgstr ""
 
-#: templates/qmplugin.tmpl:179
+#: templates/qmplugin.tmpl:174
 msgid "Waiting for"
 msgstr ""
 
-#: data/System/QMPlugin.txt:141
-msgid "Waiting for Approval"
+#: data/System/QMPluginNotifyTemplate.txt:52
+#: data/System/QMPluginNotifyTemplate.txt:72
+msgid "We would like to inform you about current status changes:"
 msgstr ""
 
-#: templates/qmpluginnotify.tmpl:40
-msgid ""
-"We would like to inform you that the topic '%1' has been set to the status "
-"'%2' by the action '%4' of %3."
-msgstr ""
-
-#: templates/qmpluginreminder.tmpl:6
+#: data/System/QMPluginReminderTemplate.txt:10
+#: data/System/QMPluginReminderTemplate.txt:27
 msgid "We would like to inform you that the topic '%1' needs your attention."
 msgstr ""
 
-#: templates/qmplugin.tmpl:22
+#: templates/qmplugin.tmpl:25
 msgid "Workflow History"
 msgstr ""
 
-#: templates/qmplugin.tmpl:227
+#: data/System/QMPluginNotifyTemplate.txt:22
+msgid "Workflow notification regarding %1"
+msgstr ""
+
+#: data/System/QMPluginReminderTemplate.txt:21
+#: data/System/QMPluginReminderTemplate.txt:5
+msgid "Workflow reminder regarding %1"
+msgstr ""
+
+#: templates/qmplugin.tmpl:225
 msgid "Yes, cancel"
 msgstr ""
 
-#: templates/qmplugin.tmpl:209
+#: templates/qmplugin.tmpl:118
+msgid "additional information about this state change"
+msgstr ""
+
+#: templates/qmplugin.tmpl:205
 msgid "and"
 msgstr ""
 
-#: data/System/QMPlugin.txt:149
-msgid "approve"
-msgstr ""
-
-#: data/System/QMPlugin.txt:150
-msgid "reject"
-msgstr ""
-
-#: data/System/QMPlugin.txt:147 data/System/QMPlugin.txt:148
-msgid "request approval"
-msgstr ""
-
-#: data/System/QMPlugin.txt:152
-msgid "resume"
-msgstr ""
-
-#: data/System/QMPlugin.txt:151
-msgid "start revision"
-msgstr ""
-
-#: templates/qmplugin.tmpl:207
+#: templates/qmplugin.tmpl:203
 msgid "the reviewers"
 msgstr ""
 
-#: templates/qmplugin.tmpl:49
+#: templates/qmplugin.tmpl:59
 msgid "view changes"
 msgstr ""

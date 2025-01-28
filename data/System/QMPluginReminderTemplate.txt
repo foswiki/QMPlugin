@@ -1,0 +1,37 @@
+%META:TOPICINFO{author="micha" comment="reprev" date="1704459223" format="1.1" reprev="1" version="1"}%
+%META:TOPICPARENT{name="QMPluginNotifyTemplate"}%
+%TMPL:INCLUDE{"qmpluginnotify"}%
+
+%TMPL:DEF{"qm::notify::header::subject"}%Subject: %WIKITOOLNAME% - %GETTOPICTITLE{"%WEB%.%HOMETOPIC%"}% - %TRANSLATE{"Workflow reminder regarding [_1]" arg1="%GETTOPICTITLE{"%WEB%.%TOPIC%"}%"}%: %TRANSLATE{"%qm_toNodeTitle%"}%%TMPL:END%
+
+%TMPL:DEF{"qm::notify::body::text"}%%{}%
+%TMPL:P{"qm::notify::greeting::text"}%
+
+%TRANSLATE{"We would like to inform you that the topic '[_1]' needs your attention."
+  arg1="%GETTOPICTITLE{"%WEB%.%TOPIC%"}%"
+}%
+
+%TRANSLATE{"Please review the topic at [_1]." 
+  args="%SCRIPTURL{"view" topic="%WEB%.%TOPIC%"}%"
+}%
+
+%TMPL:P{"qm::notify::closing::text"}%
+%TMPL:END%
+
+%TMPL:DEF{"qm::notify::title::html"}%<h3>%TRANSLATE{"Workflow reminder regarding [_1]" arg1="%GETTOPICTITLE{"%WEB%.%TOPIC%"}%"}%</h3>%TMPL:END%
+
+%TMPL:DEF{"qm::notify::body::html"}%
+%TMPL:P{"qm::notify::title::html"}%
+%TMPL:P{"qm::notify::greeting::html"}%
+<p>
+%TRANSLATE{"We would like to inform you that the topic '[_1]' needs your attention."
+  arg1="%GETTOPICTITLE{"%WEB%.%TOPIC%"}%"
+}%
+</p>
+<p>
+%TRANSLATE{"Please review the topic at [_1]." 
+  args="<a href='%SCRIPTURL{"view" topic="%WEB%.%TOPIC%"}%'>%SCRIPTURL{"view" topic="%WEB%.%TOPIC%"}%</a>"
+}%
+</p>
+%TMPL:P{"qm::notify::closing::html"}%
+%TMPL:END%

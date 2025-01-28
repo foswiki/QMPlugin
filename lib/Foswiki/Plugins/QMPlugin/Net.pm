@@ -1,6 +1,6 @@
 # Plugin for Foswiki - The Free and Open Source Wiki, https://foswiki.org/
 #
-# QMPlugin is Copyright (C) 2019-2021 Michael Daum http://michaeldaumconsulting.com
+# QMPlugin is Copyright (C) 2019-2025 Michael Daum http://michaeldaumconsulting.com
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -69,7 +69,7 @@ sub new {
   my $this = bless({@_}, $class);
 
   $this->{_adminRole} = undef;
-  $this->{_approvalNode} = undef;
+  $this->{_approvalNodes} = undef;
   $this->{_defaultNode} = undef;
   $this->{_edgeCounter} = 0;
   $this->{_edges} = undef;
@@ -107,7 +107,7 @@ sub finish {
   }
 
   undef $this->{_adminRole};
-  undef $this->{_approvalNode};
+  undef $this->{_approvalNodes};
   undef $this->{_defaultNode};
   undef $this->{_edges};
   undef $this->{_meta};
@@ -157,6 +157,7 @@ get the list of all nodes in this net
 sub getNodes {
   my $this = shift;
 
+  return () unless defined $this->{_nodes};
   return values %{$this->{_nodes}};
 }
 
@@ -186,6 +187,7 @@ get the list of all roles in this net
 sub getRoles {
   my $this = shift;
 
+  return () unless defined $this->{_roles};
   return values %{$this->{_roles}};
 }
 
@@ -215,6 +217,7 @@ get the list of all edges in this net
 sub getEdges {
   my $this = shift;
 
+  return () unless defined $this->{_edges};
   return @{$this->{_edges}};
 }
 
@@ -246,44 +249,93 @@ sub getEdge {
 
 =begin TML
 
----++ ObjectMethod getSortedRoles() -> @roles
+---++ ObjectMethod getSortedItems($type, $propName) -> @items
 
-get the list of all roles sorted by their index
+get the list of all items of type =$type= (nodes, roles, edges)
+sorted by the given property Name
+
+=cut
+
+sub getSortedItems {
+  my ($this, $type, $propName) = @_;
+
+  $type //= 'nodes';
+  $propName //= 'index';
+
+  my @items;
+
+  if ($type eq "nodes") {
+    @items = grep { $_->prop("id") ne '_unknown_' } $this->getNodes();
+  } elsif ($type eq "edges") {
+    @items = grep { $_->fromNode && $_->fromNode->prop("id") ne '_unknown_' }$this->getEdges();
+  } else {
+    @items = $this->getRoles();
+  }
+
+
+  # natural order
+  return (sort { $a->{_index} <=> $b->{_index} } @items)
+    if $propName eq 'off';
+
+  # sort by index
+  return (sort { $a->index <=> $b->index } @items)
+    if $propName eq 'index' || $propName eq 'on';
+
+  # sort by property
+  my %sorting = ();
+  my $isNumerical = 1;
+  foreach my $item (@items) {
+    my $key = $item->prop("id");
+    my $val = $item->renderProp($propName);
+    $isNumerical = 0 unless $val =~ /^[+-]?\d+(\.\d+)?$/;
+    $sorting{$key} = $val;
+  }
+
+  return $isNumerical
+    ? (sort { $sorting{$a->prop("id")} <=> $sorting{$b->prop("id")} } @items)
+    : (sort { $sorting{$a->prop("id")} cmp $sorting{$b->prop("id")} } @items);
+}
+
+=begin TML
+
+---++ ObjectMethod getSortedRoles($propName) -> @roles
+
+get the list of all roles sorted a given property name
 
 =cut
 
 sub getSortedRoles {
   my $this = shift;
 
-  return (sort {$a->index <=> $b->index} $this->getRoles);
+  return $this->getSortedItems("roles", @_);
 }
 
 =begin TML
 
----++ ObjectMethod getSortedNodes() -> @nodes
+---++ ObjectMethod getSortedNodes($propName) -> @nodes
 
-get the list of all nodes sorted by their index
+get the list of all nodes sorted by a given property name
 
 =cut
 
 sub getSortedNodes {
   my $this = shift;
 
-  return (sort {$a->index <=> $b->index} grep {$_->prop("id") ne '_unknown_'} $this->getNodes);
+  return $this->getSortedItems("nodes", @_);
 }
 
 =begin TML
 
----++ ObjectMethod getSortedEdges() -> @edges
+---++ ObjectMethod getSortedEdges($propName) -> @edges
 
-get the list of all edges sorted by their index
+get the list of all edges sorted by a given property name
 
 =cut
 
 sub getSortedEdges {
   my $this = shift;
 
-  return (sort {$a->index <=> $b->index} $this->getEdges);
+  return $this->getSortedItems("edges", @_);
 }
 
 =begin TML
@@ -299,7 +351,6 @@ sub getDefinition {
 
   return $this->{_web}.'.'.$this->{_topic} if defined $this->{_web} && defined $this->{_topic};
 }
-
 
 =begin TML
 
@@ -321,6 +372,52 @@ sub getMeta {
   
   return $this->{_meta};
 }
+
+=begin TML
+
+---++ ObjectMethod getNotificationTemplate() -> $templateName
+
+get the name of the template for workflow notification emails
+
+=cut
+
+sub getNotificationTemplate {
+  my $this = shift;
+
+  my $field = $this->getMeta->get('FIELD', 'NotificationTemplate');
+
+  if ($field) {
+    if ($field->{value}) {
+      my ($web, $topic) = Foswiki::Func::normalizeWebTopicName($this->{_web}, $field->{value});
+      $field = "$web.$topic";
+    } else {
+      $field = "";
+    }
+  }
+
+  $field ||= "qmpluginnotify";
+
+  return $field;
+}
+
+=begin TML
+
+---++ ObjectMethod getReminderTemplate() -> $string
+
+get the name of the template for workflow reminders
+
+=cut
+
+sub getReminderTemplate {
+  my $this = shift;
+
+  my $field = $this->getMeta->get('FIELD', 'ReminderTemplate');
+  $field = $field->{value} if $field;
+  $field ||= "qmpluginreminder";
+
+  return $field;
+}
+
 
 =begin TML
 
@@ -356,7 +453,7 @@ sub parseTableDefinition {
 
   return 1 if defined $this->{_nodes};
 
-  _writeDebug("parseTableDefinition($this->{_web}, $this->{_topic}) for net $this");
+  _writeDebug("parseTableDefinition($this->{_web}, $this->{_topic})");
 
   $this->{_nodes} = {};
   $this->{_edges} = [];
@@ -398,6 +495,9 @@ sub parseTableDefinition {
 
       #_writeDebug("$inTable - fields='".join("','", @fields)."'");
 
+    } elsif ($inTable && $line =~ /^\s*\|\s*\*([^\|]*?)\*.*\s*\|\s*$/) {
+      # ignore comments
+       _writeDebug("comment: $1");
     } elsif ($inTable && $line =~ /^\s*\|\s*.*\s*\|\s*$/) {
 
       my %data;
@@ -433,6 +533,16 @@ sub parseTableDefinition {
     }
   }
 
+  unless (keys %{$this->{_nodes}}) {
+    #print STDERR "No nodes in net at $this->{_web}.$this->{_topic}\n";
+    return 0;
+  }
+
+  unless (scalar(@{$this->{_edges}})) {
+    #print STDERR "No edges in net at $this->{_web}.$this->{_topic}\n";
+    return 0;
+  }
+
   # create unknown node
   my $unknownNode = $this->{_nodes}{_unknown_} = Foswiki::Plugins::QMPlugin::Node->new($this, 
     id => '_unknown_',
@@ -442,19 +552,35 @@ sub parseTableDefinition {
     message => 'unknown node',
   );
 
-  # default to unknown node
-  $this->{_approvalNode} //= $unknownNode unless defined $this->{_approvalNode};
+  # create edge from unknown node to default node
+  $this->buildEdge({
+    from => '_unknown_',
+    action => 'restart',
+    title => '%TRANSLATE{"Restart workflow"}%',
+    to => $this->getDefaultNode->prop("id"),
+  });
 
+  # set approvalNodes
+  unless (defined $this->{_approvalNodes}) {
+    my @list = ();
+    foreach my $node ($this->getNodes) {
+      push @list, $node if $node->isApprovalNode;
+    }
+    push @list, $unknownNode unless @list;
+    $this->{_approvalNodes} = \@list;
+  }
+
+  # gather incoming and outgoing edges of nodes
   foreach my $edge ($this->getEdges) {
     my $fromNode = $edge->fromNode();
     unless (defined $fromNode) {
-      print STDERR "ERROR: illegal edge: can't find node $edge->{from} in workflow $this->{_web}.$this->{_topic}\n";
+      print STDERR "ERROR: illegal edge: can't find node from=$edge->{from} in workflow $this->{_web}.$this->{_topic}, edge=".$edge->stringify."\n";
       next;
     }
 
     my $toNode = $edge->toNode();
     unless (defined $toNode) {
-      print STDERR "ERROR: illegal edge: can't find node $edge->{to} in workflow $this->{_web}.$this->{_topic}\n";
+      print STDERR "ERROR: illegal edge: can't find node to=$edge->{to} in workflow $this->{_web}.$this->{_topic}, edge=".$edge->stringify."\n";
       next;
     }
 
@@ -488,21 +614,11 @@ sub buildRole {
 sub buildNode {
   my ($this, $data) = @_;
 
-  my $approvalID = $this->{_approvalID} //= Foswiki::Func::getPreferencesValue("QMPLUGIN_APPROVAL") || 'approved';
-  my $isApprovalNode = $data->{id} =~ s/\*$// || $data->{id} eq $approvalID ? 1:0;
+  #print STDERR "buildNode data=".dump($data)."\n";
 
   my $node = Foswiki::Plugins::QMPlugin::Node->new($this, %$data);
   $this->{_nodes}{$node->prop("id")} = $node;
-
   $this->{_defaultNode} //= $node;
-
-  if ($isApprovalNode) {
-    if (defined $this->{_approvalNode}) {
-      print STDERR "WARNING: multiple approved states in workflow $this->{_web}.$this->{_topic}\n";
-    } else {
-      $this->{_approvalNode} = $node;
-    }
-  }
 
   return $node;
 }
@@ -533,15 +649,17 @@ sub buildEdge {
   }
 
   $data->{action} //= $data->{to};
-  $data->{title} //= $data->{action};
+  $data->{title} = $data->{action} if !defined($data->{title}) || $data->{title} =~ /^\s*$/;
 
   my $edge = $this->getEdge($data->{from}, $data->{action}, $data->{to});
+  _writeDebug("called buildEdge from=$data->{from}, action=$data->{action}, to=$data->{to}");
 
   if ($edge) {
-      # merge
-      foreach my $key ($edge->props()) {
-        $edge->prop($key, $data->{$key}) if defined $data->{$key};
-      }
+    # merge
+    _writeDebug("... merging to existing edge");
+    foreach my $key ($edge->props()) {
+      $edge->prop($key, $data->{$key}) if defined $data->{$key};
+    }
   } else {
     $edge = Foswiki::Plugins::QMPlugin::Edge->new($this, %$data);
     push @{$this->{_edges}}, $edge;
@@ -580,17 +698,17 @@ sub getDefaultNode {
 
 =begin TML
 
----++ ObjectMethod getApprovalNode() -> $node
+---++ ObjectMethod getApprovalNodes() -> $list
 
-get the approval node of this net; this is the one node that has got an asterisk (*) assigned to it or
+get all nodes marked as approval nodes in this net; this is the one node that has got an asterisk (*) assigned to it or
 has got the ID QMPLUGIN_APPROVAL (defaults to approved)
 
 =cut
 
-sub getApprovalNode {
+sub getApprovalNodes {
   my $this = shift;
 
-  return $this->{_approvalNode}
+  return $this->{_approvalNodes} // [];
 }
 
 =begin TML
@@ -606,6 +724,22 @@ sub getAdminRole {
   my $this = shift;
 
   return $this->{_adminRole};
+}
+
+=begin TML
+
+---++ ObjectMethod isAdmin($user) 
+
+returns true if the given user is member of the admin role
+
+=cut
+
+sub isAdmin {
+  my ($this, $user) = @_;
+
+  my $admins = $this->getAdminRole();
+  return unless $admins;
+  return $admins->isMember($user);
 }
 
 =begin TML
@@ -709,16 +843,50 @@ returns a TML expression to render the graphviz dot graph
 sub getDot {
   my ($this, $params) = @_;
 
+  return "" unless $this->{_topic}; # test if this net has been finished already
+
   $params ||= {};
   my $template = $params->{template} // "qm::graph::dot";
   my $result = Foswiki::Func::expandTemplate($template);
 
-  my $graphNodes = join("\n", map {'\"'.$_->{id}.'\" [label=\"'.$_->{title}.'\"]'} $this->getSortedNodes);
-  my $graphEdges = join("\n", map {'\"'.$_->{from}.'\" -> \"'.$_->{to}.'\" [xlabel=\"'.$_->{title}.'\"]'} $this->getSortedEdges);
+  my @nodes = $this->getSortedNodes;
+  my $graphNodes = join("\n", map {
+      my $attrs = $_->expandValue($_->prop("attributes"));
+      $attrs =~ s/"/\\"/g;
+      '\"'.$_->{id}.'\" [label=\"'.$_->{title}.'\", '.$attrs.']'
+    } 
+    @nodes
+  );
+
+  my @edges = $this->getSortedEdges;
+  my $graphEdges = join("\n", map {
+      my $attrs = $_->expandValue($_->prop("attributes"));
+      $attrs =~ s/"/\\"/g;
+      '\"'.$_->{from}.'\" -> \"'.$_->{to}.'\" [xlabel=\"'.$_->{title}.'\", '.$attrs.']'
+    } grep {
+      $_->prop("action") ne "_hidden_"
+    } @edges
+  );
+
+  my %graphRanking = ();
+  foreach my $node (@nodes) {
+    my $rank = $node->prop("rank");
+    next unless defined $rank && $rank ne "";
+    push @{$graphRanking{$rank}}, '\"' . $node->prop("id") . '\"';
+  }
+
+  my $graphRanking = "";
+  foreach my $id (sort keys %graphRanking) {
+    $graphRanking .= "{rank = same; ".join("; ", @{$graphRanking{$id}})."}\n";
+  }
+
+  my $rankDir = $graphRanking eq "" ? "TB" : "LR";
 
   $result =~ s/\$graphName/$this->{_topic}/g;
   $result =~ s/\$graphNodes/$graphNodes/g;
   $result =~ s/\$graphEdges/$graphEdges/g;
+  $result =~ s/\$graphRanking/$graphRanking/g;
+  $result =~ s/\$rankDir/$rankDir/g;
 
   return $result;
 }
@@ -734,12 +902,14 @@ returns a TML expression to render the Vis.js graph
 sub getVis {
   my ($this, $params) = @_;
 
+  return "" unless $this->{_topic}; # test if this net has been finished already
+
   $params ||= {};
   my $template = $params->{template} // "qm::graph::vis";
   my $result = Foswiki::Func::expandTemplate($template);
 
   my $graphNodes = "[".join(",\n", map {'{"id": "'.$_->{id}.'", "label": "'.$_->{title}.'"}'} $this->getSortedNodes)."]";
-  my $graphEdges = "[".join(",\n", map {'{"from": "'.$_->{from}.'", "to": "'.$_->{to}.'", "label": "'.$_->{title}.'", "arrows":"to"}'} $this->getSortedEdges)."]";
+  my $graphEdges = "[".join(",\n", map {'{"from": "'.$_->{from}.'", "to": "'.$_->{to}.'", "label": "'.$_->{title}.'", "arrows":"to"}'} grep {$_->prop("action") ne "_hidden_"} $this->getSortedEdges)."]";
   my $graphOptions = "";
   my $id = "id"._getRandom();
 

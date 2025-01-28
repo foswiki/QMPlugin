@@ -1,6 +1,7 @@
 *.swp
 *,v
 pub/**/igp_*
+pub/**/genpdf_*
 locale/**/*~
 
 /QMPlugin.md5
@@ -11,7 +12,4 @@ locale/**/*~
 /QMPlugin_installer
 /QMPlugin_installer.pl
 
-pub/System/QMPlugin/qmplugin.css
-pub/System/QMPlugin/qmplugin.css.gz
-pub/System/QMPlugin/qmplugin.js
-pub/System/QMPlugin/qmplugin.js.gz
+pub/System/**/*gz
