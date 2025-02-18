@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="ProjectContributor" comment="" date="1738061533" format="1.1"  version="1"}%
+%META:TOPICINFO{author="ProjectContributor" comment="" date="1739865730" format="1.1"  version="1"}%
 ---+!! Quality Management and Workflow Plugin
 %FORMFIELD{"Description"}%
 
@@ -679,6 +679,7 @@ See [[QMPluginPerlAPI]]
 ---++ Change History
 
 %TABLE{columnwidths="7em" tablewidth="100%"}%
+|  18 Feb 2025 | qmstate field sometimes fails to get its workflow |
 |  28 Jan 2025 | first release |
 |  12 Feb 2021 | initial release |
 
@@ -692,8 +693,7 @@ See [[QMPluginPerlAPI]]
 %META:FIELD{name="License" title="License" value="GPL ([[http://www.gnu.org/copyleft/gpl.html][GNU General Public License]])"}%
 %META:FIELD{name="Home" title="Home" value="https://foswiki.org/Extensions/%25TOPIC%25"}%
 %META:FIELD{name="Support" title="Support" value="https://foswiki.org/Support/%25TOPIC%25"}%
-%META:FILEATTACHMENT{name="simple-approval-workflow.svg" attachment="simple-approval-workflow.svg" attr="" comment="" date="1738061533" size="6565" user="ProjectContributor" version="1"}%
+%META:FILEATTACHMENT{name="simple-approval-workflow.svg" attachment="simple-approval-workflow.svg" attr="" comment="" date="1739865730" size="6565" user="ProjectContributor" version="1"}%
 %META:PREFERENCE{name="ALLOWTOPICAPPROVE" title="ALLOWTOPICAPPROVE" type="Set" value="MichaelDaum"}%
 %META:PREFERENCE{name="ALLOWTOPICCHANGE" title="ALLOWTOPICCHANGE" type="Set" value="MichaelDaum"}%
 %META:PREFERENCE{name="ALLOWTOPICVIEW" title="ALLOWTOPICVIEW" type="Set" value="MichaelDaum"}%
-%META:QMSTATE{author="MichaelDaum" changed="1" date="1701347710" id="created" workflow="System.SimpleApprovalWorkflow"}%

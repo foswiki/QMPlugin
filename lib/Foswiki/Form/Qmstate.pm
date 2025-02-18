@@ -127,7 +127,7 @@ sub getEditOptions {
   unless (defined $this->{_editOptions}) {
     my @nodes = ();
 
-    my $net = $this->getNet;
+    my $net = $this->getNet($web, $topic);
     if ($net) {
       my $node = $net->getNode($value);
 
@@ -186,12 +186,12 @@ sub getState {
 }
 
 sub getNet {
-  my $this = shift;
+  my ($this, $web, $topic) = @_;
 
   unless (defined $this->{_net}) {
     my $session = $Foswiki::Plugins::SESSION;
-    my $web = $session->{webName};
-    my $topic = $session->{topicName};
+    $web //= $session->{webName};
+    $topic //= $session->{topicName};
     my $workflow = $this->param("workflow");
 
     ($web, $topic) = Foswiki::Func::normalizeWebTopicName($web, $workflow || $topic);

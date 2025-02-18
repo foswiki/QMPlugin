@@ -1,5 +1,5 @@
 FOSWIKI_ROOT?=~/foswiki/core
-TARGET=build/qmplugin.css build/qmplugin.js 
+TARGET=build build/qmplugin.css build/qmplugin.js 
 
 -include $(FOSWIKI_ROOT)/pub/System/JQueryPlugin/Makefile.include
 
@@ -10,3 +10,9 @@ build/%.css: src/%.css
 
 build/%.js: src/%.js
 	@echo generating $@; $(JSMIN) $^ > $@
+
+clean:
+	rm -f build/*
+
+build:
+	@mkdir build
