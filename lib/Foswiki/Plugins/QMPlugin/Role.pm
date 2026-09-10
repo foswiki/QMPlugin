@@ -1,6 +1,6 @@
 # Plugin for Foswiki - The Free and Open Source Wiki, https://foswiki.org/
 #
-# QMPlugin is Copyright (C) 2019-2025 Michael Daum http://michaeldaumconsulting.com
+# QMPlugin is Copyright (C) 2019-2026 Michael Daum http://michaeldaumconsulting.com
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -103,7 +103,7 @@ sub isMember {
 
     next if $id =~ /^$Foswiki::regex{emailAddrRegex}$/;
   }
-  
+
   return 0;
 }
 
@@ -120,7 +120,7 @@ sub getMembers {
 
   $seen //= {};
   $expand //= 1;
-  
+
   return if $seen->{$this->prop("id")};    # prevent infinite recursion
   $seen->{$this->prop("id")} = 1;
 
@@ -128,15 +128,8 @@ sub getMembers {
   my $members = $this->prop("members");
 
   foreach my $id (split(/\s*,\s*/, $this->expandValue($this->prop("members")))) {
-    next if $seen->{$id} || $members{$id};
+    next unless $id;
     next if $id =~ /^(nobody)$/i;
-
-    # role
-    my $role = $this->getNet->getRole($id);
-    if (defined $role) {
-      $members{$_->prop("id")} = $_ foreach $role->getMembers($expand, $seen);
-      next;
-    }
 
     # group
     my $group = $this->getCore->getGroup($id);
@@ -153,6 +146,15 @@ sub getMembers {
     my $user = $this->getCore->getUser($id);
     if (defined $user) {
       $members{$user->prop("id")} = $user;
+      next;
+    }
+
+    next if $seen->{$id} || $members{$id};
+
+    # role
+    my $role = $this->getNet->getRole($id);
+    if (defined $role) {
+      $members{$_->prop("id")} = $_ foreach $role->getMembers($expand, $seen);
       next;
     }
 
@@ -209,7 +211,16 @@ sub getEmails {
       my $group = $this->getCore->getGroup($id);
       if (defined $group) {
         $members{$group->prop("id")} = $group;
+        next;
       }
+
+      # email
+      if ($id =~ /^.*\@.*$/) {
+        $members{$id} = 1;
+        next;
+      }
+
+      print STDERR "WARNING: undefined type of member '$id' (not a role, user or group)\n"
     }
 
   } else {
@@ -217,8 +228,12 @@ sub getEmails {
   }
 
   my %emails = ();
-  foreach my $member (values %members) {
-    $emails{$_} = 1 foreach $member->getEmails();
+  foreach my $key (keys %members) {
+    if ($key =~ /^.*\@.*$/) {
+      $emails{$key} =1;
+    } else {
+      $emails{$_} = 1 foreach $members{$key}->getEmails();
+    }
   }
 
   my @emails = sort keys %emails;

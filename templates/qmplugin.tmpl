@@ -70,7 +70,8 @@ $comment <!-- -->
   workflow="%URLPARAM{"workflow"}%" 
   format="$percntSET{\"edges\" value=\"$edges\"}$percnt<!-- -->
           $percntSET{\"numActions\" value=\"$numActions\"}$percnt<!-- -->
-          $percntSET{\"numEdges\" value=\"$numEdges\"}$percnt"
+          $percntSET{\"numEdges\" value=\"$numEdges\"}$percnt<!-- -->
+          $percntSET{\"numTitles\" value=\"$numTitles\"}$percnt"
 }%%{}%
     <div class="foswikiFormSteps">
 <div class="foswikiFormStep">
@@ -78,7 +79,7 @@ $comment <!-- -->
 %FORMATLIST{
   "%edges%"
   pattern="^(.*)/(.*)/(.*)$"
-  include=".*/%IF{"$'URLPARAM{action}'=''" then=".*" else="%URLPARAM{"action"}%"}%/.*"
+  include=".*/%ENCODE{"%IF{"$'URLPARAM{action}'=''" then=".*" else="%URLPARAM{"action"}%"}%" old="(,)" new="\(,\)"}%/.*"
   format="$percntQMEDGE{
             from=\"$1\"
             action=\"$2\"
@@ -88,8 +89,11 @@ $comment <!-- -->
                       <input type='radio' name='action' $percntIF{\"$index=1\" then=\"checked\"}$percnt value='$2' data-to='$3'>
                       $dollarpercntJQICON{\\"$dollaricon\\"}$dollarpercnt 
                       $percntIF{
-                        \"%numActions%=1 and %numActions%!=%numEdges%\"
+                        \"%numActions%=1 and %numActions%!=%numEdges% and %numTitles%=1\"
                         then=\"$dollarnodeTitle($to)\"
+                      }$percnt$percntIF{
+                        \"%numActions%=1 and %numActions%!=%numEdges% and %numTitles%!=1\"
+                        then=\"$dollarnodeTitle($to) <span class='foswikiGrayText'>($dollartitle)</span>\"
                       }$percnt$percntIF{
                         \"%numActions%>=1 and %numActions%=%numEdges%\" 
                         then=\"$dollartitle\"
@@ -239,16 +243,16 @@ $comment <!-- -->
 %TMPL:DEF{"qm::graph::dot"}%%GRAPHVIZ{ 
   renderer="dot" 
   type="svg"  
-  inline="off"
+  inline="on"
   "digraph $graphName {
-    graph [fontname=helvetica, ranksep=0.8, nodesep=0.5, rankdir=$rankDir, bgcolor=\"transparent\"]; 
-    node [fontname=helvetica, fontsize=10, shape=box, fontsize=12, style=\"rounded, filled\", fillcolor=\"#EEEEEE\", color=\"#AAAAAA\", margin=\"0.25,0\"]; 
-    edge [fontname=helvetica, fontsize=10, color=\"#31CEF0\", arrowhead=\"vee\", minlen=1, arrowsize=0.5 %IF{"context darkmode" then=", fontcolor=\\"#FFFFFF\\""}%];
+    graph [fontname=helvetica, ranksep=0.8, nodesep=0.5, rankdir=$rankDir, bgcolor=\"transparent\", class=\"qmGraph\"]; 
+    node [fontname=helvetica, fontsize=10, shape=box, fontsize=12, style=\"rounded, filled\", fillcolor=\"#EEEEEE\", color=\"#AAAAAA\" margin=\"0.25,0\"]; 
+    edge [fontname=helvetica, fontsize=10, color=\"#31CEF0\", arrowhead=\"vee\", minlen=1, arrowsize=0.5 ];
     $graphNodes
     $graphEdges
     $graphRanking
   }"
-}%%TMPL:END%
+}%<style>.qmGraph .edge text { fill:var(--color-foreground, #aaa); }</style>%TMPL:END%
 %TMPL:DEF{"qm::review::separator"}%%TMPL:END%
 
 %TMPL:DEF{"qm::graph::vis"}%%JQREQUIRE{"vis"}%<div clasS="jqVisNetwork" data-vis-data="#vis-data-$id" data-vis-options="#vis-options-$id"></div>

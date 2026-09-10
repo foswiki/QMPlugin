@@ -7,6 +7,7 @@ lib/Foswiki/Form/Qmstate.pm 0644
 lib/Foswiki/Form/Qmworkflow.pm 0644
 lib/Foswiki/Plugins/QMPlugin/Base.pm 0644
 lib/Foswiki/Plugins/QMPlugin/Command.pm 0644
+lib/Foswiki/Plugins/QMPlugin/Config.spec 0644
 lib/Foswiki/Plugins/QMPlugin/Core.pm 0644
 lib/Foswiki/Plugins/QMPlugin/DEPENDENCIES 0644
 lib/Foswiki/Plugins/QMPlugin/Edge.pm 0644
@@ -20,6 +21,7 @@ lib/Foswiki/Plugins/QMPlugin/Handler/Merge.pm 0644
 lib/Foswiki/Plugins/QMPlugin/Handler/Move.pm 0644
 lib/Foswiki/Plugins/QMPlugin/Handler/Notify.pm 0644
 lib/Foswiki/Plugins/QMPlugin/Handler/Pref.pm 0644
+lib/Foswiki/Plugins/QMPlugin/Handler/Rest.pm 0644
 lib/Foswiki/Plugins/QMPlugin/Handler/Trash.pm 0644
 lib/Foswiki/Plugins/QMPlugin/JQuery.pm 0644
 lib/Foswiki/Plugins/QMPlugin/MANIFEST 0644

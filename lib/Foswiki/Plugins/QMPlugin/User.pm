@@ -1,6 +1,6 @@
 # Plugin for Foswiki - The Free and Open Source Wiki, https://foswiki.org/
 #
-# QMPlugin is Copyright (C) 2019-2025 Michael Daum http://michaeldaumconsulting.com
+# QMPlugin is Copyright (C) 2019-2026 Michael Daum http://michaeldaumconsulting.com
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -124,7 +124,7 @@ sub _getPropLazy {
     my $wikiName = $this->prop('wikiName');
     if ($web && $wikiName) {
       if (Foswiki::Func::topicExists($web, $wikiName)) {
-        return Foswiki::Func::getTopicTitle($web, $wikiName);
+        return _getTopicTitle($web, $wikiName);
       } else {
         return $wikiName;
       }
@@ -208,6 +208,19 @@ sub getEmails {
   my @emails = ();
   push @emails, $this->prop("email");
   return @emails;
+}
+
+sub _getTopicTitle {
+  my ($web, $topic) = @_;
+
+  return Foswiki::Func::getTopicTitle($web, $topic) if $Foswiki::cfg{Plugins}{TopicTitlePlugin}{Enabled};
+
+  return $topic if $topic ne $Foswiki::cfg{HomeTopicName};
+
+  my $webTitle = $web;
+  $webTitle =~ s/^.*[\/\.]//;
+
+  return $webTitle;
 }
 
 1;

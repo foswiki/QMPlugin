@@ -1,6 +1,6 @@
 # Plugin for Foswiki - The Free and Open Source Wiki, https://foswiki.org/
 #
-# QMPlugin is Copyright (C) 2019-2025 Michael Daum http://michaeldaumconsulting.com
+# QMPlugin is Copyright (C) 2019-2026 Michael Daum http://michaeldaumconsulting.com
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -207,7 +207,7 @@ sub init {
       if ($edge && $edge->isEnabled($user)) {
         _writeDebug("edge ".$edge->prop("id")." is enabled for ".$user->prop("displayName"));
       } else {
-        _writeDebug("WARNING: edge $from -> $to not enabled or allowed while saving topic");
+        _writeWarning("edge $from -> $to not enabled or allowed for ".$user->prop("displayName")." while saving topic $this->{_web}.$this->{_topic}");
         $edge = undef;
       }
 
@@ -215,11 +215,11 @@ sub init {
       #_writeDebug("qmdata id=$from");
 
       if ($edge) {
-        _writeDebug("need to perform a transition from '$from' to '$to' using action '".$edge->prop("action")."'");
+        _writeDebug("need to perform a transition $from -> $to");
         $this->traverse($edge, "_init_");
         $this->hasChanged(1);
       } else {
-        _writeDebug("WARNING: need to resync formfield from '$to' to '$from' in topic $this->{_web}.$this->{_topic}");
+        _writeWarning("need to resync formfield from '$to' to '$from' in topic $this->{_web}.$this->{_topic}");
         $field->{value} = $from;
         $this->hasChanged(1);
       }
@@ -886,6 +886,9 @@ the related topic to the trash.
 sub processCommands {
   my ($this, $type) = @_;
 
+  return unless $this->{_queue}{$type};
+  return unless scalar(@{$this->{_queue}{$type}});
+
   _writeDebug("processCommands($type)");
 
   foreach my $command (@{$this->{_queue}{$type}}) {
@@ -914,7 +917,7 @@ that may have happened as part of the mail delivery process. See also =Foswiki::
 sub sendNotification {
   my ($this, $template) = @_;
 
-  _writeDebug("sendNotification()");
+  _writeDebug("sendNotification($this->{_web}.$this->{_topic}), workflow=".$this->prop("workflow"));
 
   my $edge = $this->getCurrentEdge();
 
@@ -927,6 +930,8 @@ sub sendNotification {
     my %myEmails = map {$_ => 1} Foswiki::Func::wikinameToEmails();
     @emails = grep {!$myEmails{$_}} @emails;
   }
+
+  @emails = grep {!/^noreply\@/} @emails;
 
   if (@emails) {
     _writeDebug("... emails=@emails");
@@ -1370,6 +1375,24 @@ sub getCurrentNode {
 
 =begin TML
 
+---++ ObjectMethod getPreviousNode()  -> $node
+
+get the node that lead to the current node
+
+=cut
+
+sub getPreviousNode {
+  my $this = shift;
+
+  my $net = $this->getNet;
+  return unless $net;
+
+  my $id = $this->{previousNode} // '_unknown_';
+  return $net->getNode($id) // $net->getUnknownNode();
+}
+
+=begin TML
+
 ---++ ObjectMethod getCurrentEdge() -> $edge
 
 get the edge that has been traversed to reach this state
@@ -1654,7 +1677,8 @@ sub getReviewers {
   my %users = ();
 
   foreach my $review ($this->getReviews()) {
-    if (!defined($action) || $action eq $review->prop("action")) {
+    my $reviewAction = $review->prop("action") // "";
+    if (!defined($action) || $action eq $reviewAction) {
       my $user = $this->getCore->getUser($review->prop("author"));
       $users{$user->prop("id")} = $user if defined $user;
     }
@@ -1872,7 +1896,7 @@ sub render {
   return "" unless defined $node;
   #_writeDebug("node=".join(",", $node->props));
 
-  my $result = $format || '';
+  my $result = $format // '';
 
   my $edge = $this->getCurrentEdge();
   my $notify = "";
@@ -1893,9 +1917,10 @@ sub render {
   }
 
   my $numEdges = 0;
+  my $numTitles = 0;
   my $edges = "";
   my $nodes = "";
-  if ($result =~ /\$(edges|nodes|numEdges)\b/) {
+  if ($result =~ /\$(edges|nodes|numEdges|numTitles)\b/) {
 
     my @edges = sort {$a->index <=> $b->index} grep {$_->prop("action") ne "_hidden_"} $this->getPossibleEdges();
     $edges = join(", ", map {$_->prop("from") . "/" . $_->prop("action"). "/" . $_->prop("to")} @edges);
@@ -1903,7 +1928,11 @@ sub render {
 
     my %nodes = map {$_->prop("to") => 1} @edges;
     $nodes = join(", ", sort keys %nodes);
+
+    my %titles = map {$_->prop("title") => 1} @edges;
+    $numTitles = scalar(keys %titles);
   }
+
 
   # state props
   my $stateRegex = join("|", $this->props);
@@ -1969,6 +1998,7 @@ sub render {
   $result =~ s/\$nodes\b/$nodes/g;
   $result =~ s/\$numActions\b/$numActions/g;
   $result =~ s/\$numEdges\b/$numEdges/g;
+  $result =~ s/\$numTitles\b/$numTitles/g;
   $result =~ s/\$numReviews\b/$numReviews/g;
   $result =~ s/\$numComments\b/$numComments/g;
   $result =~ s/\$notify\b/$notify/g;
@@ -2169,6 +2199,10 @@ sub json {
 sub _writeDebug {
   return unless TRACE;
   print STDERR "QMPlugin::State - $_[0]\n";
+}
+
+sub _writeWarning {
+  print STDERR "QMPlugin::State - WARNING: $_[0]\n";
 }
 
 sub _entityDecode {

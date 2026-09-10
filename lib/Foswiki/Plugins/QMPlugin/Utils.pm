@@ -1,6 +1,6 @@
 # Plugin for Foswiki - The Free and Open Source Wiki, https://foswiki.org/
 #
-# QMPlugin is Copyright (C) 2019-2025 Michael Daum http://michaeldaumconsulting.com
+# QMPlugin is Copyright (C) 2019-2026 Michael Daum http://michaeldaumconsulting.com
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -106,7 +106,8 @@ move a single attachment to the trash
 sub trashAttachment {
   my ($from, $attachment, $trash) = @_;
 
-  ($trash) = Foswiki::Func::readTopic($Foswiki::cfg{TrashWebName}, 'TrashAttachment')
+  my $trashWeb = Foswiki::Func::getPreferencesValue("TRASHWEB") || $Foswiki::cfg{TrashWebName};
+  ($trash) = Foswiki::Func::readTopic($trashWeb, 'TrashAttachment')
     unless defined $trash;
 
   # from Foswiki::UI::Rename

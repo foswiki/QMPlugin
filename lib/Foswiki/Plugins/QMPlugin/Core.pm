@@ -1,6 +1,6 @@
 # Plugin for Foswiki - The Free and Open Source Wiki, https://foswiki.org/
 #
-# QMPlugin is Copyright (C) 2019-2025 Michael Daum http://michaeldaumconsulting.com
+# QMPlugin is Copyright (C) 2019-2026 Michael Daum http://michaeldaumconsulting.com
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -124,6 +124,12 @@ our @defaultHandler = ({
     package => 'Foswiki::Plugins::QMPlugin::Handler::CreateTopic',
     function => 'handle',
     type => 'afterSave',
+  },
+  {
+    id => 'rest',
+    package => 'Foswiki::Plugins::QMPlugin::Handler::Rest',
+    function => 'handle',
+    type => 'beforeSave',
   },
 );
 
@@ -312,7 +318,7 @@ sub saveMeta {
   my $this = shift;
   my $meta = shift;
 
-  _writeDebug("called saveMeta(".$meta->getPath().")");
+  $this->writeDebug("called saveMeta(".$meta->getPath().")");
 
   $this->{_saveInProgress} = 1;
   my $rev = $meta->save(@_);
@@ -333,27 +339,25 @@ sub afterSaveHandler {
   my ($this, $web, $topic, $meta) = @_;
 
   return if $this->{_saveInProgress};
-  _writeDebug("called afterSaveHandler for $web.$topic, $meta");
+  $this->writeDebug("called afterSaveHandler for $web.$topic");
+
+  ($meta) = Foswiki::Func::readTopic($web, $topic) unless defined $meta;
 
   my $state = $this->getState($web, $topic, undef, $meta, 1);
   unless (defined $state) {
-    _writeDebug("no qmstate found");
+    $this->writeDebug("no qmstate found");
     return;
   }
 
   my $workflow = $state->prop("workflow");
   unless (defined $workflow) {
-    _writeDebug("no workflow found");
+    $this->writeDebug("no workflow found");
     return;
   }
 
   my $hasChanged = $state->setACLs();
-  unless ($hasChanged) {
-    _writeDebug("acls didn't change");
-    return;
-  }
+  return unless $hasChanged || $state->hasChanged();
 
-  _writeDebug("saving new acls");
   $this->saveMeta($meta,
 # DON'T change the save flags as this overrides those done by the user
 #    minor => 1,
@@ -369,7 +373,7 @@ sub afterSaveHandler {
     print STDERR "allowApprove=" . ($allowApproval ? $allowApproval->{value} : 'undef') . "\n";
   }
 
-  _writeDebug("done afterSaveHandler");
+  $this->writeDebug("done afterSaveHandler");
 }
 
 =begin TML
@@ -385,12 +389,12 @@ sub beforeSaveHandler {
   my ($this, $web, $topic, $meta) = @_;
 
   return if $this->{_saveInProgress};
-  _writeDebug("called beforeSaveHandler for $web.$topic, $meta");
+  $this->writeDebug("called beforeSaveHandler for $web.$topic");
 
   ($meta) = Foswiki::Func::readTopic($web, $topic) unless defined $meta;
 
   my $state = $this->getState($web, $topic, undef, $meta);
-  _writeDebug("no qmstate found") unless defined $state;
+  $this->writeDebug("no qmstate found") unless defined $state;
   return unless defined $state;
 
   ### 1. get workflow from request
@@ -400,10 +404,10 @@ sub beforeSaveHandler {
   my $workflow = $request->param("workflow");
   if (defined $workflow) {
     if ($workflow eq "") {
-      _writeDebug("removing workflow as reuqested");
+      $this->writeDebug("removing workflow as reuqested");
       $doUnsetWorkflow = 1;
     } else {
-      _writeDebug("found workflow in reuqest");
+      $this->writeDebug("found workflow in reuqest");
     }
   } else {
     # 2. get workflow from qmworkflow formfield
@@ -411,7 +415,7 @@ sub beforeSaveHandler {
 
     if ($workflowField) {
       $workflow = $workflowField->{value};
-      _writeDebug("found workflowField, name=$workflowField->{name}");
+      $this->writeDebug("found workflowField, name=$workflowField->{name}");
       $doUnsetWorkflow = 1 unless $workflow;
     }
   } 
@@ -441,32 +445,46 @@ sub beforeSaveHandler {
     # 5. get workflow from qm meta data
     unless ($workflow) {
       $workflow = $state->prop("workflow");
-      _writeDebug("found workflow in meta data") if $workflow;
+      $this->writeDebug("found workflow in meta data") if $workflow;
     }
   }
 
   if ($workflow && !$doUnsetWorkflow) {
-    _writeDebug("found workflow '$workflow'");
+    $this->writeDebug("found workflow '$workflow'");
 
-    _writeDebug("setting workflow");
+    $this->writeDebug("setting workflow");
     $state->setWorkflow($workflow);
+
+    my $qmState = $request->param("qmstate");
+    my $qmAction = $request->param("qmaction");
+    my $qmComment = $request->param("qmcomment");
+    if (defined $qmState || defined $qmAction) {
+      $this->writeDebug("found qmstate=$qmState in url param") if defined $qmState;
+      $this->writeDebug("found qmaction=$qmAction in url param") if defined $qmAction;
+      $this->writeDebug("found qmcomment=$qmComment in url param") if defined $qmComment;
+      $state->change($qmAction, $qmState, $qmComment);
+    }
+
 
   } else {
     if ($state->prop("workflow")) {
-      _writeDebug("unsetting workflow");
+      $this->writeDebug("unsetting workflow");
       $state->unsetWorkflow();
       $state->updateMeta();
     }
   }
 
+  my $forceSave = Foswiki::Func::isTrue($request->param("force"), 0);
+  $state->hasChanged(1) if $forceSave;
+
   if ($state->hasChanged()) {
-    _writeDebug("state changed ... saving changes.");
+    $this->writeDebug("state changed ... saving changes.");
     $state->save();
   } else {
-    _writeDebug("no changes");
+    $this->writeDebug("no changes");
   }
 
-  _writeDebug("done beforeSaveHandler");
+  $this->writeDebug("done beforeSaveHandler");
 }
 
 =begin TML
@@ -567,7 +585,7 @@ sub jsonRpcCancelTransition {
   throw Foswiki::Contrib::JsonRpcContrib::Error(404, "Topic does not exist")
     unless Foswiki::Func::topicExists($web, $topic);
 
-  _writeDebug("called jsonRpcCancelTransition(), topic=$web.$topic, wikiName=$wikiName");
+  $this->writeDebug("called jsonRpcCancelTransition(), topic=$web.$topic, wikiName=$wikiName");
 
   my ($meta) = Foswiki::Func::readTopic($web, $topic);
 
@@ -617,7 +635,7 @@ sub jsonRpcChangeState {
   #throw Foswiki::Contrib::JsonRpcContrib::Error(1005, "to not defined")
   #  unless defined $to;
 
-  _writeDebug("called jsonRpcChangeState(), topic=$web.$topic, wikiName=$wikiName, action=$action, to=".($to//'undef'));
+  $this->writeDebug("called jsonRpcChangeState(), topic=$web.$topic, wikiName=$wikiName, action=$action, to=".($to//'undef'));
 
   my ($meta) = Foswiki::Func::readTopic($web, $topic);
 
@@ -659,7 +677,7 @@ sub jsonRpcChangeState {
   } catch Error with {
     $error = shift;
     print STDERR "ERROR: $error\n";
-    throw Error::Simple("Sorry, there was an error when saving the state.");
+    throw Error::Simple("Sorry, there was an error when saving the state: $error");
   };
 
   return {redirect => $this->redirectUrl()} if defined $this->redirectUrl();
@@ -683,7 +701,7 @@ sub jsonRpcSendNotification {
   my $template = $request->param("template");
   ($web, $topic) = Foswiki::Func::normalizeWebTopicName($web, $topic);
 
-  _writeDebug("called jsonRpcNotify(), topic=$web.$topic, wikiName=$wikiName");
+  $this->writeDebug("called jsonRpcNotify(), topic=$web.$topic, wikiName=$wikiName");
 
   throw Foswiki::Contrib::JsonRpcContrib::Error(404, "Topic does not exist")
     unless Foswiki::Func::topicExists($web, $topic);
@@ -730,22 +748,22 @@ sub restTriggerStates {
   my ($this, $session) = @_;
 
   my $request = Foswiki::Func::getRequestObject();
+  my $isDry = Foswiki::Func::isTrue($request->param("dry"), 0);
+  $this->{_debug} = Foswiki::Func::isTrue($request->param("debug"), 0);
 
-  _writeDebug("called restTriggerStates()");
+  $this->writeDebug("called restTriggerStates()".($isDry?" - DRY":""));
 
   throw Error::Simple("not allowed") unless Foswiki::Func::getContext()->{isadmin};
 
   # enter cron context
   Foswiki::Func::getContext()->{cronjob} = 1;
 
-  my $isDry = Foswiki::Func::isTrue($request->param("dry"), 0);
-
   my $includeWeb = $request->param("includeweb");
   my $excludeWeb = $request->param("excludeweb");
   my $keepReviews = Foswiki::Func::isTrue($request->param("keepreviews"), 0);
 
   my @webs = split(/\s*,\s*/, $request->param("web") // $request->param("webs") // '');
-  _writeDebug("webs=@webs");
+  $this->writeDebug("webs=@webs");
 
   my $includeTopic = $request->param("includetopic");
   my $excludeTopic = $request->param("excludetopic");
@@ -777,7 +795,7 @@ sub restTriggerStates {
     next if $excludeTopic && $topic =~ /$excludeTopic/;
 
     if (Foswiki::Func::topicExists($web, $topic.'Copy')) {
-      _writeDebug("... found copy in ".$web.'.'.$topic."Copy ... skipping");
+      $this->writeDebug("... found copy in ".$web.'.'.$topic."Copy ... skipping");
       next;
     }
 
@@ -791,15 +809,15 @@ sub restTriggerStates {
     next if $excludeWorkflow && $workflow =~ /$excludeWorkflow/;
 
     $index++;
-    _writeDebug("processing topic=$web.$topic");
-    _writeDebug("... workflow=$workflow");
+    $this->writeDebug("processing topic=$web.$topic");
+    #$this->writeDebug("... workflow=$workflow");
 
     my $node = $state->getCurrentNode();
     unless (defined $node) {
       print STDERR "WARNING: $web.$topic - state undefined even though workflow '$workflow' is assigned\n";
       next;
     }
-    _writeDebug("... current state=".$node->prop("id"));
+    #$this->writeDebug("... current state=".$node->prop("id"));
 
     # loop until no more edges could be traversed
     my %seen = ();
@@ -810,11 +828,11 @@ sub restTriggerStates {
       last if $seen{$id};
       $seen{$id} = 1;
 
-      _writeDebug("... found qmstate in $web.$topic, id=$id");
-      _writeDebug("... ".scalar(@edges)." edge(s) that can be triggered");
+      $this->writeDebug("... found qmstate in $web.$topic, id=$id");
+      $this->writeDebug("... ".scalar(@edges)." edge(s) that can be triggered");
 
       my $edge = shift @edges;
-      _writeDebug("... triggering edge ".$edge->stringify);
+      $this->writeDebug("... triggering edge ".$edge->stringify);
 
       my $error;
       my $hasChanged = 0;
@@ -840,12 +858,12 @@ sub restTriggerStates {
         } catch Error with {
           $error = shift;
           print STDERR "ERROR: $error\n";
-          throw Error::Simple("Sorry, there was an error when triggering the state.");
+          throw Error::Simple("Sorry, there was an error when triggering the state.: $error");
         };
       }
     }
   }
-  _writeDebug("... tested $index topics"); 
+  $this->writeDebug("... tested $index topics"); 
   
   return '';
 }
@@ -861,7 +879,7 @@ macro implementation for =%QMHISTORY=
 sub QMHISTORY {
   my ($this, $session, $params, $topic, $web) = @_;
 
-  _writeDebug("called QMHISTORY()");
+  $this->writeDebug("called QMHISTORY()");
 
   $topic = $params->{_DEFAULT} if defined $params->{_DEFAULT};
   $topic = $params->{topic} if defined $params->{topic};
@@ -894,9 +912,8 @@ sub QMHISTORY {
   $separator //= '';
 
   my @states = $this->getStates($web, $topic, $rev, $params);
-  _writeDebug(scalar(@states) . " state(s) found at $web.$topic");
+  $this->writeDebug(scalar(@states) . " state(s) found at $web.$topic");
   my $isReverse = Foswiki::Func::isTrue($params->{reverse}, 0);
-  @states = reverse @states if $isReverse;
 
   my $sort = $params->{sort} || $params->{order} || "date";
   $sort = "id" if $sort eq "state";
@@ -919,7 +936,8 @@ sub QMHISTORY {
 
     $prevState = $state unless $isReverse;
   }
-  return "" unless @result;
+  my $null = $params->{nullformat} // '';
+  return $null unless @result;
 
   Foswiki::Plugins::JQueryPlugin::createPlugin('QMPlugin');
   my $result = $header . join($separator, @result) . $footer;
@@ -948,7 +966,7 @@ sub QMNET {
   $topic = $params->{topic} if defined $params->{topic};
   ($web, $topic) = Foswiki::Func::normalizeWebTopicName($web, $topic);
 
-  #_writeDebug("called QMNET: $web.$topic, rev=$rev");
+  #$this->writeDebug("called QMNET: $web.$topic, rev=$rev");
 
   my $workflow = $params->{_DEFAULT} // $params->{workflow};
   my $net;
@@ -1083,7 +1101,7 @@ sub QMSTATE {
   $topic = $params->{topic} if defined $params->{topic};
   ($web, $topic) = Foswiki::Func::normalizeWebTopicName($web, $topic);
 
-  #_writeDebug("called QMSTATE: $web.$topic, rev=$rev");
+  #$this->writeDebug("called QMSTATE: $web.$topic, rev=$rev");
 
   my $state = $this->getState($web, $topic, $rev);
   return $ignoreError ? "" : _inlineError("no qmstate found") unless $state;
@@ -1091,7 +1109,7 @@ sub QMSTATE {
   my $workflow = $params->{workflow};
   $state->setWorkflow($workflow) if $workflow;
 
-  #_writeDebug("state=".$state->stringify());
+  #$this->writeDebug("state=".$state->stringify());
 
   return $ignoreError ? "" : _inlineError("qmstate workflow not found") unless defined $state->getNet();
 
@@ -1111,7 +1129,7 @@ macro implementation for =%QMNODE=
 sub QMNODE {
   my ($this, $session, $params, $topic, $web) = @_;
 
-  #_writeDebug("called QMNODE()");
+  #$this->writeDebug("called QMNODE()");
 
   my $request = Foswiki::Func::getRequestObject();
   my $format = $params->{format} // '$id, $title, $message';
@@ -1166,7 +1184,7 @@ macro implementation for =%QMROLE=
 sub QMROLE {
   my ($this, $session, $params, $topic, $web) = @_;
 
-  #_writeDebug("called QMROLE()");
+  #$this->writeDebug("called QMROLE()");
 
   my $request = Foswiki::Func::getRequestObject();
   my $format = $params->{format} // '$members';
@@ -1217,7 +1235,7 @@ macro implementation for =%QMEDGE=
 sub QMEDGE {
   my ($this, $session, $params, $topic, $web) = @_;
 
-  #_writeDebug("called QMEDGE()");
+  #$this->writeDebug("called QMEDGE()");
 
   my $format = $params->{format} // '$from, $action, $to';
   my $ignoreError = _ignoreError($params);
@@ -1276,7 +1294,7 @@ macro implementation for =%QMGRAPH=
 sub QMGRAPH {
   my ($this, $session, $params, $topic, $web) = @_;
 
-  #_writeDebug("called QMGRAPH()");
+  #$this->writeDebug("called QMGRAPH()");
 
   my $ignoreError = _ignoreError($params);
 
@@ -1325,7 +1343,7 @@ macro implementation for =%QMBUTTON=
 sub QMBUTTON {
   my ($this, $session, $params, $topic, $web) = @_;
 
-  #_writeDebug("called QMBUTTON()");
+  #$this->writeDebug("called QMBUTTON()");
 
   my $request = Foswiki::Func::getRequestObject();
   my $rev = $params->{rev} || $request->param("rev");
@@ -1395,6 +1413,9 @@ sub getState {
   my ($this, $web, $topic, $rev, $meta, $force) = @_;
 
   $rev = $meta->getLoadedRev() if defined $meta;
+  $rev //= 0;
+
+  $this->writeDebug("called getState($web, $topic, $rev)");
 
   # get cached state
   my $key = _getWebTopicKey($web, $topic, $rev);
@@ -1402,7 +1423,7 @@ sub getState {
   $state = $this->{_states}{$key} unless $force;
 
   unless (defined $state) {
-    _writeDebug("getState($web, $topic, ".($rev//'undef').")");
+    #$this->writeDebug("getState($web, $topic, ".($rev//'undef').")");
     $this->{_states}{$key} = '_undef_'; # prevent deep recursion
 
     $state = Foswiki::Plugins::QMPlugin::State->new($web, $topic, $rev, $meta);
@@ -1461,7 +1482,7 @@ sub getStates {
   my ($this, $web, $topic, $rev, $params) = @_;
 
   $rev ||= 0;
-  _writeDebug("called getStates($web, $topic, $rev)");
+  $this->writeDebug("called getStates($web, $topic, $rev)");
 
   my @states = ();
   my $maxRev = $rev;
@@ -1472,44 +1493,64 @@ sub getStates {
   my $prevKey;
 
   my $skip = $params->{skip} || 0;
-  my $limit = ($params->{limit} || 0) + $skip;
-  my $index = 0;
-  
-  for (my $i = $maxRev ; $i > 0 ; $i--) {
-    my $state = $this->getState($web, $topic, $i);
+  my $limit = $params->{limit} || 0;
+
+  my $from;
+  my $to;
+
+  my $isReverse = Foswiki::Func::isTrue($params->{reverse}, 0);
+  if ($isReverse) {
+    $from = $maxRev - $skip;
+    $from = 1 if $from < 1;
+    $to = 1;
+  } else {
+    $from = 1 + $skip;
+    $from = $maxRev if $from > $maxRev;
+    $to = $maxRev;
+    $to = $maxRev if $to > $maxRev;
+  }
+
+  $this->writeDebug("from=$from, to=$to, limit=$limit, skip=$skip, isReverse=$isReverse");
+
+  for (my $rev = $from; $isReverse ? $rev >= $to : $rev <= $to ; $isReverse ? $rev-- : $rev++) {
+    my $state = $this->getState($web, $topic, $rev);
     next unless $state;
     
-    # SMELL: too unreliable as by now
-    #next unless $state->prop("changed") || $i == 1;
-
     my $date = $state->prop("date");
     my $edge = $state->getCurrentEdge();
     my $key = ($edge ? $edge->stringify() : "").", $date";
     next if $prevKey && $key eq $prevKey;
     $prevKey = $key;
 
-    my $workflow = $params->{workflow} || $state->prop("workflow");
-    $state->setWorkflow($workflow) if $workflow;
     next unless defined $state->prop("id");
+
+    # date
+    next if defined $params->{from_date} && $date < $params->{from_date};
+    last if defined $params->{to_date} && $date > $params->{to_date};
 
     my @comments = map {$_->{text}} $state->getComments();
     my $comment = $comments[-1] // '';
 
-    # filter
-    next if defined $params->{filter_action} && ($state->prop("reviewAction") || $state->prop("previousAction")) !~ /$params->{filter_action}/;
-    next if defined $params->{filter_author} && $state->prop("author") !~ /$params->{filter_author}/;
-    next if defined $params->{filter_comment} && $comment !~ /$params->{filter_comment}/;
-    next if defined $params->{from_date} && $date < $params->{from_date};
-    last if defined $params->{to_date} && $date > $params->{to_date};
-    next if defined $params->{filter_message} && $state->prop("message") !~ /$params->{filter_message}/;
-    next if defined $params->{filter_reviewer} && join(", ", $state->getReviewedBy()) !~ /$params->{filter_reviewer}/;
-    next if defined $params->{filter_state} && $state->prop("id") !~ /$params->{filter_state}/;
+    # include
+    next if defined $params->{include_action} && ($state->prop("reviewAction") || $state->prop("previousAction")) !~ /$params->{include_action}/;
+    next if defined $params->{include_author} && $state->prop("author") !~ /$params->{include_author}/;
+    next if defined $params->{include_comment} && $comment !~ /$params->{include_comment}/;
+    next if defined $params->{include_message} && $state->prop("message") !~ /$params->{include_message}/;
+    next if defined $params->{include_reviewer} && join(", ", $state->getReviewedBy()) !~ /$params->{include_reviewer}/;
+    next if defined $params->{include_state} && $state->prop("id") !~ /$params->{include_state}/;
 
-    $index++;
-    next if $index <= $skip;
+    # exclude
+    next if defined $params->{exclude_action} && ($state->prop("reviewAction") || $state->prop("previousAction")) =~ /$params->{exclude_action}/;
+    next if defined $params->{exclude_author} && $state->prop("author") =~ /$params->{exclude_author}/;
+    next if defined $params->{exclude_comment} && $comment =~ /$params->{exclude_comment}/;
+    next if defined $params->{exclude_message} && $state->prop("message") =~ /$params->{exclude_message}/;
+    next if defined $params->{exclude_reviewer} && join(", ", $state->getReviewedBy()) =~ /$params->{exclude_reviewer}/;
+    next if defined $params->{exclude_state} && $state->prop("id") =~ /$params->{exclude_state}/;
+
     push @states, $state;
+    last if $limit && scalar(@states) == $limit;
 
-    # limit
+    # until
     last if defined $params->{until_action} && ($state->prop("reviewAction") || $state->prop("previousAction")) =~ /$params->{until_action}/;
     last if defined $params->{until_author} && $state->prop("author") =~ /$params->{until_author}/;
     last if defined $params->{until_comment} && $comment =~ /$params->{until_comment}/;
@@ -1525,10 +1566,9 @@ sub getStates {
     }
 
     last if defined $untilState && $state->prop("id") =~ /$untilState/;
-    last if $limit && $index >= $limit;
   }
 
-  return reverse @states;
+  return @states;
 }
 
 =begin TML
@@ -1554,7 +1594,7 @@ sub registerCommandHandler {
 
   return unless defined $handler;
 
-  #_writeDebug("registerCommandHandler for $handler->{id} in $handler->{package}");
+  #$this->writeDebug("registerCommandHandler for $handler->{id} in $handler->{package}");
 
   $this->{_commandHandler}{lc($handler->{id})} ||= ();
   push @{$this->{_commandHandler}{lc($handler->{id})}}, $handler;
@@ -1627,7 +1667,7 @@ hooks into the solr indexer and add workflow fields
 sub solrIndexTopicHandler {
   my ($this, $indexer, $doc, $web, $topic, $meta, $text) = @_;
 
-  _writeDebug("called solrIndexTopicHandler($web, $topic)");
+  $this->writeDebug("called solrIndexTopicHandler($web, $topic)");
   my $state = $this->getState($web, $topic);
   return unless $state;
 
@@ -1639,6 +1679,10 @@ sub solrIndexTopicHandler {
 
   my $nodeId = $state->prop("id");
   return unless defined $nodeId;
+
+  my $prevNode = $state->getPreviousNode();
+  my $prevNodeId = $prevNode->prop("id");
+  my $prevNodeTitle = $prevNode->prop("title");
 
   my $nodeTitle = $state->expandValue($node->prop("title"));
   my @reviewers = sort $state->getReviewers();
@@ -1659,6 +1703,9 @@ sub solrIndexTopicHandler {
     field_QMWorkflow_s => $workflow,
     field_QMStateID_s => $nodeId,
     field_QMStateTitle_s => $nodeTitle,
+
+    field_QMStatePreviousNode_s => $prevNodeId,
+    field_QMStatePreviousTitle_s => $prevNodeTitle,
 
     field_QMStateReviewers_lst => \@reviewers,
     field_QMStateReviewers_s => join(", ", @reviewers),
@@ -1683,7 +1730,7 @@ hooks into the solr indexer and add workflow fields
 sub solrIndexAttachmentHandler {
   my ($this, $indexer, $doc, $web, $topic, $attachment) = @_;
 
-  _writeDebug("called solrIndexAttachmentHandler($web, $topic)");
+  $this->writeDebug("called solrIndexAttachmentHandler($web, $topic)");
 
   my $state = $this->getState($web, $topic);
   return unless $state && $state->prop("workflow");
@@ -1718,8 +1765,8 @@ sub dbCacheIndexTopicHandler {
   my $state = $this->getState($web, $topic, undef, $meta);
   return unless $state && $state->prop("workflow");
 
-  _writeDebug("called dbCacheIndexTopicHandler($web, $topic)");
-  _writeDebug("workflow=".$state->prop("workflow"));
+  $this->writeDebug("called dbCacheIndexTopicHandler($web, $topic)");
+  #$this->writeDebug("workflow=".$state->prop("workflow"));
 
   my $qmo = $obj->fastget("qmstate");
 
@@ -1767,6 +1814,14 @@ sub setTemplateName {
   _setPreferenceName('PRINT_TEMPLATE', $qmData->{printTemplate});
 }
 
+sub writeDebug {
+  my ($this, $msg) = @_;
+
+  return unless TRACE || $this->{_debug};
+  print STDERR "QMPlugin::Core - $msg\n";
+}
+
+
 ###
 ### private static functions
 ###
@@ -1800,14 +1855,7 @@ sub _getWebTopicKey {
 
   my $key = $web . "::" . $topic . "::" . $rev;
 
-  #_writeDebug("key=$key");
-
   return $key;
-}
-
-sub _writeDebug {
-  return unless TRACE;
-  print STDERR "QMPlugin::Core - $_[0]\n";
 }
 
 sub _sortRecords {

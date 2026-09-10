@@ -1,6 +1,6 @@
 # Plugin for Foswiki - The Free and Open Source Wiki, https://foswiki.org/
 #
-# QMPlugin is Copyright (C) 2019-2025 Michael Daum http://michaeldaumconsulting.com
+# QMPlugin is Copyright (C) 2019-2026 Michael Daum http://michaeldaumconsulting.com
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -336,7 +336,7 @@ sub expandHelpers {
   $result =~ s/\$(?:wikiName|wikiname)(?:\((.*?)\))?/$this->_userinfo('wikiName', $1)/ge;
   $result =~ s/\$(?:userName|username)(?:\((.*?)\))?/$this->_userinfo('userName', $1)/ge;
   $result =~ s/\$emails?(?:\((.*?)\))?/$this->_userinfo('email', $1)/ge;
-  $result =~ s/\$(action|edge)Title\((.*?)\)/$this->_actionTitle($1)/ge;
+  $result =~ s/\$(?:action|edge)Title\((.*?)\)/$this->_actionTitle($1)/ge;
   $result =~ s/\$nodeTitle\((.*?)\)/$this->_nodeTitle($1)/ge;
 
   return $result;

@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="ProjectContributor" comment="" date="1739865730" format="1.1"  version="1"}%
+%META:TOPICINFO{author="micha" comment="rePref" date="1783067876" format="1.1" reprev="30" version="1"}%
 ---+!! Quality Management and Workflow Plugin
 %FORMFIELD{"Description"}%
 
@@ -152,9 +152,9 @@ The resulting net can be visualized using the =%<nop>QMGRAPH%= macro in case you
 
 Once this workflow definition is stored in a topic, say =SimpleApprovalWorkflow=, it may be added to a topic to start the workflow:
 
-<verbatim class="tml">
-%QMSTATE{workflow="SimpleApprovalWorkflow"}%
-</verbatim>
+<pre class="tml">
+%QMSTATE<nop>{workflow="SimpleApprovalWorkflow"}%
+</pre>
 
 ---++ Custom Properties
 
@@ -294,6 +294,62 @@ Examples:
    * =pref("token" value="1")=
    * =pref("token" value="")=
    * =pref("counter" value="%<nop>CALCULATE{"$EVAL(%<nop>counter{default="0"}%+1)"}%")=
+
+---+++ =rest()= 
+
+make a REST call 
+
+Parameters:
+
+   * =&lt;id>=: ID of a predefined REST configuration
+   = =&lt;key>=&lt;value>=: optional key-value pairs to be patched into the REST's url parameters, http header or body content
+
+A REST handler is defined as part of the !QMPlugin configuration. For example:
+
+<verbatim>
+$Foswiki::cfg{QMPlugin}{RestConfig} = {
+  notifyUser => {
+    url => 'https://mycompany.com/bin/view/Applications/LocalApps/NotifyUser',
+    method => "GET",
+    params => {
+      section => "test",
+      skin => "text",
+      user => "%val%",
+    },
+  },
+  postMessage => {
+    url => 'https://mycompany.com/bin/view/Applications/LocalApps/PostMessage',
+    method => "POST",
+    body => {
+      foo => "%val%",
+      bar => "%val%",
+      baz => "%val%",
+    },
+  }
+};
+</verbatim>
+
+This will enable commands =rest("notifyUser" user="%WIKINAME%")= and =rest("postMessage" foo="abc" bar="def" baz="ghi")= added to your workflow.
+Note that the response of the REST call will be stored in a specific prefernce setting to be processed further by other commands of the transition.
+In the above example configuration the results of the =notifyUser= call will be stored in
+
+<verbatim>
+%notifyUser_response%
+</verbatim>
+
+Likewise, the response of the =postMessage= handler will be stored in
+
+<verbatim>
+%postMessage_response%
+</verbatim>
+
+To store this value use a command sequence like this:
+
+<verbatim>
+rest("postMessage" foo="val1" bar="val2" baz="var3"), pref("result" value="%postMessage_response%") |
+</verbatim>
+
+You may of course use the =formfield()= command instead of the =pref()= to store the response into a formfield instead of a preference variable.
 
 ---+++ =trash()=
 
@@ -528,18 +584,20 @@ and renders their state information. Each state information per revision is form
 | =title= | title string normally part of the header | value of the =qm::history::header::title= template |
 | =header= | header string prepended to the output if any thing was found | value of the =qm::history::header= template |
 | =format= | format string for each entry in the history | value of the =qm::history::format= template |
+| =nullformat="..."= | format string to be used when no result was found | |
 | =separator= | separator between formatted items | |
 | =footer= | footer string appended to the output if anything was found | value of the =qm::history::footer= template |
 | =sort=, =order= | sorting of found records; can be  any property of a state: id, author, comment, date, etc | =date= |
 | =reverse= | boolean flag to inverse the results | =off= |
 | =skip= | number of records to skip in the loop | =0= |
 | =limit= | maximum number of records to return; return all recurds if left unspecified; both properties =limit= and =skip= can be used to implement pagination | |
-| =workflow= | workflow definition | current topic's workflow |
-| =filter_action=, =filter_author=, =filter_comment=, =filter_message=, =filter_reviewer=, =filter_state= | regular expression that records must match |  |
 | =from_date= | only return records later than this date |  |
 | =to_date= | only return records up to this date |  |
 | =ignoreerror= | boolean switch to disable any possible error message that might occur | =off= |
 | =warn= | alernative to =ignoreerror= | =on= |
+| =include_action=, =include_author=, =include_comment=, =include_message=, =include_reviewer=, =include_state= | regular expression that records must match |  |
+| =exclude_action=, =exclude_author=, =exclude_comment=, =exclude_message=, =exclude_reviewer=, =exclude_state= | regular expression that records must match |  |
+| =until_action=, =until_author=, =until_comment=, =until_message=, =until_reviewer=, =until_state= | regular expression until which records are listed | |
 
 Each entry in the history displays the state the topic was in in this revision. The =format= string may thus use the same variables as in =%QMSTATE=. In addition
 =$index=, expands to the index in the list of history entries.
@@ -670,6 +728,23 @@ with workflows is achieved by deploying the !TopicTypes:
 
 See [[QMPluginPerlAPI]]
 
+---++ Support for <nop>SolrPlugin
+
+QMPlugin hooks into the topic indexing process and adds additional fields specific to the workflow and the status of a topic:
+
+| *Field Name* | *Description* |
+| =field_QMWorkflow_s= | the actual workflow |
+| =field_QMStateID_s= | the node id of current status |
+| =field_QMStateTitle_s= | the node title of the current status |
+| =field_QMStatePreviousNode_s= | the node id of the previous status |
+| =field_QMStatePreviousTitle_s= | the node title of the previous status |
+| =field_QMStateReviewers_lst= | the list of reviewers |
+| =field_QMStateReviewers_s= | the list of reviewers as one string |
+| =field_QMStatePendingApprovers_lst= | the list of pending approvers |
+| =field_QMStatePendingApprovers_s= | the list of pending approvers as one string |
+| =field_QMStatePendingReviewers_lst= | the list of pending reviewers |
+| =field_QMStatePossibleReviewers_s= | the list of pending reviewers as one string|
+
 ---++ Installation Instructions
 %$INSTALL_INSTRUCTIONS%
 
@@ -679,6 +754,8 @@ See [[QMPluginPerlAPI]]
 ---++ Change History
 
 %TABLE{columnwidths="7em" tablewidth="100%"}%
+|  13 Feb 2026 | added =rest()= command to workflow |
+|  06 Nov 2025 | renamed =filter_...= parameters in QMHISTORY to =exclude_...=; added =include_...= parameters; performance fixes for QMHISTORY |
 |  18 Feb 2025 | qmstate field sometimes fails to get its workflow |
 |  28 Jan 2025 | first release |
 |  12 Feb 2021 | initial release |
@@ -689,11 +766,8 @@ See [[QMPluginPerlAPI]]
 %META:FIELD{name="Release" title="Release" value="%25$RELEASE%25"}%
 %META:FIELD{name="Description" title="Description" value="%25$SHORTDESCRIPTION%25"}%
 %META:FIELD{name="Repository" title="Repository" value="https://github.com/foswiki/%25TOPIC%25"}%
-%META:FIELD{name="Copyright" title="Copyright" value="2019-2025 Michael Daum"}%
+%META:FIELD{name="Copyright" title="Copyright" value="2019-2026 Michael Daum"}%
 %META:FIELD{name="License" title="License" value="GPL ([[http://www.gnu.org/copyleft/gpl.html][GNU General Public License]])"}%
 %META:FIELD{name="Home" title="Home" value="https://foswiki.org/Extensions/%25TOPIC%25"}%
 %META:FIELD{name="Support" title="Support" value="https://foswiki.org/Support/%25TOPIC%25"}%
 %META:FILEATTACHMENT{name="simple-approval-workflow.svg" attachment="simple-approval-workflow.svg" attr="" comment="" date="1739865730" size="6565" user="ProjectContributor" version="1"}%
-%META:PREFERENCE{name="ALLOWTOPICAPPROVE" title="ALLOWTOPICAPPROVE" type="Set" value="MichaelDaum"}%
-%META:PREFERENCE{name="ALLOWTOPICCHANGE" title="ALLOWTOPICCHANGE" type="Set" value="MichaelDaum"}%
-%META:PREFERENCE{name="ALLOWTOPICVIEW" title="ALLOWTOPICVIEW" type="Set" value="MichaelDaum"}%

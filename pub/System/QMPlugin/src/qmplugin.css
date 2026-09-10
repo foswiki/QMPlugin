@@ -77,7 +77,7 @@ tr.qmApproved td a {
   margin: 0 0 0.5em 0;
   overflow:hidden;
   box-sizing:border-box;
-  transition:200ms ease;
+  /*transition:200ms ease;*/
 }
 .qmAction:hover,
 .qmAction.qmSelected {
@@ -85,15 +85,42 @@ tr.qmApproved td a {
   color: var(--color-selection-foreground, #333);
   border-color: var(--color-selection-border, #d5d6dd);
 }
+.qmAction:hover .foswikiGrayText,
+.qmAction.qmSelected .foswikiGrayText {
+  color: var(--color-selection-foreground, #333);
+}
+
 .qmAction .foswikiIcon {
   font-size:120%;
   width: 1.28571429em;
   text-align:center;
   margin-right:0.3em;
 }
-.qmAction.qmSelected .foswikiIcon {
-  color: var(--color-selection-foreground, #fff);
-}
 .qmAction input[type=radio] {
   display:none;
 }
+
+.qmAction.qmSelected .foswikiIcon.fa-clock-o,
+.qmAction:hover .foswikiIcon.fa-clock-o,
+.qmAction.qmSelected .foswikiIcon {
+  color: var(--color-selection-foreground, #fff);
+}
+.qmAction .foswikiIcon {
+  color:var(--color-primary);
+}
+/*
+.qmAction .foswikiIcon.fa-archive {
+  color:var(--color-brown, brown);
+}
+*/
+.qmAction .foswikiIcon.fa-check-circle {
+  color:var(--color-green, green);
+}
+.qmAction .foswikiIcon.fa-times-circle {
+  color:var(--color-red, red);
+}
+.qmAction .foswikiIcon.fa-envelope,
+.qmAction .foswikiIcon.fa-question-circle {
+  color:var(--color-orange, orange);
+}
+

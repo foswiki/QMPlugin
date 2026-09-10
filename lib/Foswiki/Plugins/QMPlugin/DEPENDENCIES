@@ -5,3 +5,6 @@ Foswiki::Plugins::JQDataTablesPlugin,>=6.30,perl,Optional
 Foswiki::Plugins::MoreFormfieldsPlugin,>=8.00,perl,Required
 Foswiki::Plugins::MultiLingualPlugin,>=4.10,perl,Required
 Foswiki::Plugins::RenderPlugin,>=6.20,perl,Required
+HTTP::CookieJar::LWP,>=0,cpan,Required
+REST::Client,>=,cpan,Required
+JSON,>=,cpan,Required

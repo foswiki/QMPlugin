@@ -1,6 +1,6 @@
 # Plugin for Foswiki - The Free and Open Source Wiki, https://foswiki.org/
 #
-# QMPlugin is Copyright (C) 2019-2025 Michael Daum http://michaeldaumconsulting.com
+# QMPlugin is Copyright (C) 2019-2026 Michael Daum http://michaeldaumconsulting.com
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -55,7 +55,7 @@ sub getDefaultValue {
   my $net = $this->getNet($web, $topic);
   return $id unless defined $net;
 
-  my $node = $id?$net->getNode($id):$net->getDefaultNode;
+  my $node = ($id && $id ne "")?$net->getNode($id):$net->getDefaultNode;
   return "" unless defined $node;
 
   return $node->prop("id");
@@ -76,7 +76,11 @@ sub getOptions {
   my ($this, $web, $topic) = @_;
 
   $this->getValueMap($web, $topic);
-  return $this->getEditOptions($this->{_value}, $web, $topic) if defined $this->{_value};
+
+  # value is the starting point, initially _unknown_
+  my $value = Foswiki::Func::topicExists($web, $topic) ? $this->{_value} : '_unknown_';
+
+  return $this->getEditOptions($value, $web, $topic) if defined $this->{_value};
   return $this->getDisplayOptions($web, $topic);
 }
 
@@ -131,10 +135,9 @@ sub getEditOptions {
     if ($net) {
       my $node = $net->getNode($value);
 
-
       my %seen = ();
       if ($node) {
-        push @nodes, $node;
+        push @nodes, $node unless $node->prop("id") eq '_unknown_';
         $seen{$node->prop("id")} = 1;
 
         my $user = $this->getCore->getSelf();
@@ -144,9 +147,10 @@ sub getEditOptions {
           next unless $edge->isEnabled($user);
 
           my $toNode = $net->getNode($edge->prop("to"));
-          next if $seen{$toNode->prop("id")};
+          my $toId = $toNode->prop("id");
+          next if $seen{$toId};
 
-          $seen{$toNode->prop("id")} = 1;
+          $seen{$toId} = 1;
           push @nodes, $toNode;
         }
       }
@@ -253,6 +257,7 @@ sub renderForEdit {
   my $web = $meta->web;
   my $topic = $meta->topic;
 
+
   Foswiki::Func::pushTopicContext($web, $topic);
 
   $this->{_editOptions} = undef;
@@ -276,8 +281,9 @@ sub renderForEdit {
 
       my $selected = ($item eq $value ? 'checked="checked"' : '');
       my $label = $state->translate($this->{valueMap}{$item} // $item);
-      my $description = $this->{_descriptions}{$item} // '';
+      my $description = _decodeFormat($this->{_descriptions}{$item} // '');
       $description = $state->expandValue($description) if $description =~ /%/;
+      $description =~ s/([<>%'"])/'&#'.ord($1).';'/ge; # to secure the title attribute 
 
       $line =~ s/\$value\b/$item/g;
       $line =~ s/\$description\b/$description/g;
@@ -290,7 +296,7 @@ sub renderForEdit {
   my $html = "<div class='foswikiRadioButtonGroup' style='display:inline-block;column-count:$this->{size}'>" . join("\n", @result) . "</div>";
 
   my $class = $this->cssClasses("foswikiRadioButton");
-  my $theme = $this->param("theme") // "info";
+  my $theme = $this->param("theme") // "default";
   my $tooltipPosition = $this->param("tooltipPosition") // "left";
 
   $html =~ s/\$class\b/$class/g;
@@ -309,6 +315,18 @@ sub _encode {
 
   $text = Encode::encode_utf8($text) if $Foswiki::UNICODE;
   $text =~ s/([^0-9a-zA-Z-_.:~!*\/])/'%'.sprintf('%02x',ord($1))/ge;
+
+  return $text;
+}
+
+sub _decodeFormat {
+  my $text = shift;
+
+  $text =~ s/\$nop//g;
+  $text =~ s/\$n/\n/g;
+  $text =~ s/\$perce?nt/%/g;
+  $text =~ s/\$dollar/\$/g;
+  $text =~ s/\\"/"/g;
 
   return $text;
 }

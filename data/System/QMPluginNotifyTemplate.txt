@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="micha" comment="reprev" date="1725006637" format="1.1" reprev="9" version="11"}%
+%META:TOPICINFO{author="micha" comment="rePref" date="1770214145" format="1.1" reprev="2" version="2"}%
 %META:TOPICPARENT{name="QMPlugin"}%
 %{ WARNING: Please do not modify this template. Create a skin overlay instead. }%
 
@@ -22,6 +22,7 @@
 %TMPL:DEF{"qm::notify::header::subject"}%Subject: %WIKITOOLNAME% - %GETTOPICTITLE{"%WEB%.%HOMETOPIC%"}% - %TRANSLATE{"Workflow notification regarding [_1]" arg1="%GETTOPICTITLE{"%WEB%.%TOPIC%"}%"}%: %TRANSLATE{"%qm_toNodeTitle%"}%%TMPL:END%
 %TMPL:DEF{"qm::notify::header::priority"}%X-Priority: 2%TMPL:END%
 %TMPL:DEF{"qm::notify::header::misc"}%Auto-Submitted: auto-generated
+X-Foswiki-Ref: %WEB%.%TOPIC%
 MIME-Version: 1.0
 Content-Type: multipart/alternative; boundary="=_=0i0k0i0w0s0o0fXuOi0E0A"
 %TMPL:END%
@@ -57,12 +58,12 @@ Content-Transfer-Encoding: 8bit
    * %TRANSLATE{"Editor"}%:  %qm_authorTitle%"}%
 %TMPL:P{"qm::notify::body::text::reviews"}%   
 
-%TRANSLATE{"Please review the topic at [_1]." 
-   arg1="%SCRIPTURL{"view" topic="%WEB%.%TOPIC%"}%"
-}%
+%TMPL:P{"qm::notify::topiclink::text"}%
 
 %TMPL:P{"qm::notify::closing::text"}%
 %TMPL:END%
+
+%TMPL:DEF{"qm::notify::topiclink::text"}%%TRANSLATE{"Please review the topic at [_1]."  arg1="%SCRIPTURL{"view" topic="%WEB%.%TOPIC%"}%"}%%TMPL:END%
 
 %{ html body}%
 %TMPL:DEF{"qm::notify::body::html"}%
@@ -79,20 +80,21 @@ Content-Transfer-Encoding: 8bit
 </ul>
 
 %TMPL:P{"qm::notify::body::html::reviews"}%   
+%TMPL:P{"qm::notify::topiclink::html"}%
+%TMPL:P{"qm::notify::closing::html"}%
+%TMPL:END%
 
-<p>
+%TMPL:DEF{"qm::notify::topiclink::html"}%<p>
 %TRANSLATE{"Please review the topic at [_1]." 
    arg1="<a href='%SCRIPTURL{"view" topic="%WEB%.%TOPIC%"}%'>%SCRIPTURL{"view" topic="%WEB%.%TOPIC%"}%</a>"
 }%
-</p>
-%TMPL:P{"qm::notify::closing::html"}%
-%TMPL:END%
+</p>%TMPL:END%
 
 %TMPL:DEF{"qm::notify::greeting::text"}%%TRANSLATE{"Hello"}%,%TMPL:END%
 %TMPL:DEF{"qm::notify::closing::text"}%%TRANSLATE{"Best Regards, [_1]Your Wiki Team." arg1=""}%%TMPL:END%
 
 %TMPL:DEF{"qm::notify::title::html"}%<h2>%GETTOPICTITLE{"%WEB%.%TOPIC%"}%</h2>%TMPL:END%
-%TMPL:DEF{"qm::notify::greeting::html"}%<b>%TRANSLATE{"Hello"}%,</b>%TMPL:END%
+%TMPL:DEF{"qm::notify::greeting::html"}%<p>%TRANSLATE{"Hello"}%,</p>%TMPL:END%
 %TMPL:DEF{"qm::notify::closing::html"}%<p>%TRANSLATE{"Best Regards, [_1]Your Wiki Team." arg1="<br />"}%</p>%TMPL:END%
 
 %TMPL:DEF{"qm::notify::body::text::reviews"}%%QMSTATE{
@@ -109,6 +111,4 @@ Content-Transfer-Encoding: 8bit
   reviewseparator="$n()"
 }%%TMPL:END%
 
-<literal>
 %TMPL:P{"qm::notify"}%
-</literal>

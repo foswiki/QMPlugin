@@ -1,6 +1,6 @@
 # Plugin for Foswiki - The Free and Open Source Wiki, https://foswiki.org/
 #
-# QMPlugin is Copyright (C) 2019-2025 Michael Daum http://michaeldaumconsulting.com
+# QMPlugin is Copyright (C) 2019-2026 Michael Daum http://michaeldaumconsulting.com
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -30,7 +30,7 @@ use Foswiki::Func ();
 use Foswiki::Plugins::JQueryPlugin ();
 use Foswiki::Contrib::JsonRpcContrib ();
 
-our $VERSION = '1.01';
+our $VERSION = '2.00';
 our $RELEASE = '%$RELEASE%';
 our $SHORTDESCRIPTION = 'Workflow Engine for Quality Management';
 our $LICENSECODE = '%$LICENSECODE%';
@@ -128,6 +128,7 @@ sub initPlugin {
       Foswiki::Plugins::JQDataTablesPlugin::describeColumn("dbcache", "workflow", "workflow.name");
       Foswiki::Plugins::JQDataTablesPlugin::describeColumn("dbcache", "workflowstate", "workflow.name");
       Foswiki::Plugins::JQDataTablesPlugin::describeColumn("dbcache", "qmstate_id", "qmstate.id");
+      Foswiki::Plugins::JQDataTablesPlugin::describeColumn("dbcache", "qmstate_previous_node", "qmstate.previousNode");
       Foswiki::Plugins::JQDataTablesPlugin::describeColumn("dbcache", "qmstate_comments", "qmreview[comment]");
       Foswiki::Plugins::JQDataTablesPlugin::describeColumn("dbcache", "qmstate_progress", {
         type => "percent",
@@ -172,6 +173,7 @@ sub initPlugin {
       Foswiki::Plugins::JQDataTablesPlugin::describeColumn("solr", "workflow", "state");
       Foswiki::Plugins::JQDataTablesPlugin::describeColumn("solr", "workflowstate", "state");
       Foswiki::Plugins::JQDataTablesPlugin::describeColumn("solr", "qmstate_id", "state");
+      Foswiki::Plugins::JQDataTablesPlugin::describeColumn("solr", "qmstate_previous_node", "field_QMStatePreviousNode_s");
       #'qmstate' => 'qmstate.title',
       #'qmstate_id' => 'qmstate.id',
       #'qmstate_pendingApprover' => 'qmstate.pendingApprover',

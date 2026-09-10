@@ -1,6 +1,6 @@
 # Plugin for Foswiki - The Free and Open Source Wiki, https://foswiki.org/
 #
-# QMPlugin is Copyright (C) 2023-2025 Michael Daum http://michaeldaumconsulting.com
+# QMPlugin is Copyright (C) 2023-2026 Michael Daum http://michaeldaumconsulting.com
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -95,7 +95,8 @@ sub next {
     my $doc = pop(@$matches);
     unless (defined $doc) {
       undef $this->{_matches};
-      return $this->next;
+      return $this->next if $this->{_numFound} > $this->{_start};
+      return;
     }
     my $web =  $doc->value_for("web");
     my $topic = $doc->value_for("topic");
@@ -104,7 +105,8 @@ sub next {
 
   unless ($matches->hasNext) {
     undef $this->{_matches};
-    return $this->next;
+    return $this->next if $this->hasNext;
+    return;
   }
 
   if ($this->{_mode} eq MODE_DBCACHE) {
@@ -151,7 +153,7 @@ sub matches {
 
   return $this->{_matches} if defined $this->{_matches};
 
-
+  # dbcache mode
   if ($this->{_mode} eq MODE_DBCACHE) {
     my $web = $this->web;
     return unless $web;
@@ -163,6 +165,7 @@ sub matches {
     return $this->{_matches};
   } 
 
+  # solr mode
   if ($this->{_mode} eq MODE_SOLR) {
     my $searcher = Foswiki::Plugins::SolrPlugin::getSearcher();
 
@@ -183,12 +186,10 @@ sub matches {
 
     my @docs = $response->docs;
     $this->{_matches} = \@docs;
-    my $len = scalar(@docs);
     $this->{_numFound} = $response->content->{response}->{numFound};
 
     print STDERR "start=$this->{_start}, numFound=$this->{_numFound}\n" if TRACE;
-
-    $this->{_start} += $len;
+    $this->{_start} += ($this->{rows} // 1000);
 
     return $this->{_matches};
   } 

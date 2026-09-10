@@ -1,6 +1,6 @@
 # Plugin for Foswiki - The Free and Open Source Wiki, https://foswiki.org/
 #
-# QMPlugin is Copyright (C) 2019-2025 Michael Daum http://michaeldaumconsulting.com
+# QMPlugin is Copyright (C) 2019-2026 Michael Daum http://michaeldaumconsulting.com
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -284,7 +284,7 @@ sub getEmails {
       next;
     }
 
-    #print STDERR "WARNING: undefined type of member '$id' (not a role, user or group)\n"
+    print STDERR "WARNING: undefined type of member '$id' (not a role, user or group)\n"
   }
 
   my @emails = sort keys %emails;
@@ -397,6 +397,7 @@ sub execute {
       # parse error
       last;
     }
+    next unless defined $id;
 
     # queue command
     #$this->writeDebug("queueCommand($id) params=".dump($params));
