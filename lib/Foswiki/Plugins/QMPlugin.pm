@@ -30,7 +30,7 @@ use Foswiki::Func ();
 use Foswiki::Plugins::JQueryPlugin ();
 use Foswiki::Contrib::JsonRpcContrib ();
 
-our $VERSION = '2.00';
+our $VERSION = '2.01';
 our $RELEASE = '%$RELEASE%';
 our $SHORTDESCRIPTION = 'Workflow Engine for Quality Management';
 our $LICENSECODE = '%$LICENSECODE%';

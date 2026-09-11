@@ -1744,8 +1744,6 @@ sub solrIndexAttachmentHandler {
   my $nodeTitle = $state->expandValue($node->prop("title"));
 
   $doc->add_fields(
-    state => $nodeId,
-
     field_QMStateID_s => $nodeId,
     field_QMStateTitle_s => $nodeTitle,
   );

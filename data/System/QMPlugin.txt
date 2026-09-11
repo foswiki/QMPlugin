@@ -754,11 +754,12 @@ QMPlugin hooks into the topic indexing process and adds additional fields specif
 ---++ Change History
 
 %TABLE{columnwidths="7em" tablewidth="100%"}%
-|  13 Feb 2026 | added =rest()= command to workflow |
-|  06 Nov 2025 | renamed =filter_...= parameters in QMHISTORY to =exclude_...=; added =include_...= parameters; performance fixes for QMHISTORY |
-|  18 Feb 2025 | qmstate field sometimes fails to get its workflow |
-|  28 Jan 2025 | first release |
-|  12 Feb 2021 | initial release |
+|  11 Sep 2026: | no need to propagate the state field down to attachments while indexing attachments as <nop>SolrPlugin is now doing it by itself |
+|  13 Feb 2026: | added =rest()= command to workflow |
+|  06 Nov 2025: | renamed =filter_...= parameters in QMHISTORY to =exclude_...=; added =include_...= parameters; performance fixes for QMHISTORY |
+|  18 Feb 2025: | qmstate field sometimes fails to get its workflow |
+|  28 Jan 2025: | first release |
+|  12 Feb 2021: | initial release |
 
 %META:FORM{name="PackageForm"}%
 %META:FIELD{name="Author" title="Author" value="Michael Daum"}%
